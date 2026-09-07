@@ -575,19 +575,21 @@ def forces_and_torques(xyz, box, cutoff):
         r = float(np.linalg.norm(d))
         magnitude = _lennard_jones(r, cutoff)[1]
         force = magnitude * d / r                      # on j, away from i
-        apply(j, xyz[j, 0] + shift, force)
+        # The lever arm for j uses its real (unshifted) site position: translating the
+        # whole molecule by `shift` would translate its centre of mass by the same
+        # amount, so the shift cancels out of (site - centre). The shift belongs only in
+        # the minimum-image direction of the force.
+        apply(j, xyz[j, 0], force)
         apply(i, xyz[i, 0], -force)
-        first, second = charge_sites(xyz[i]), charge_sites(xyz[j]) + shift
+        first, second = charge_sites(xyz[i]), charge_sites(xyz[j])
         for a, qa in zip(first, CHARGES):
             for b, qb in zip(second, CHARGES):
-                delta = b - a
+                delta = (b + shift) - a
                 distance = float(np.linalg.norm(delta))
                 magnitude = _reaction_field(distance, qa * qb, cutoff)[1]
                 force = magnitude * delta / distance
                 apply(j, b, force)
                 apply(i, a, -force)
-    # Torques were accumulated about the shifted images; the shift is a translation of
-    # the whole molecule, so the torque about its own centre is unchanged.
     return forces, torques
 
 
