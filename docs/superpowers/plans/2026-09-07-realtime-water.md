@@ -971,7 +971,7 @@ git commit -m "Build rigid-body initial states from the exported ice configurati
   - `interface Simulation { molecules: number; box: number; cutoff: number; timePs: number; readSites(): Promise<Float32Array>; setTemperature(kelvin: number): void; setDensity(ratio: number): void; setMolecules(count: number): void; reset(): void; evaluateForces(packed: Float32Array): Promise<{ forces: Float32Array; torques: Float32Array }>; dispose(): void }`. Task 6 adds `step(count: number)` and Task 7 adds `readStats()`.
   - `interface SimulationStats { translationalTemperature: number; rotationalTemperature: number; maximumForce: number; nonFinite: boolean }` — declared here, filled in by Task 7.
   - `createBackground(gpu: Gpu, canvas: HTMLCanvasElement, molecules: number, onFailure: () => void)` returning `{ render(sites: Float32Array, box: number): void; dispose(): void }`.
-  - `window.waterSimulation` — the live `Simulation` plus `box`, `molecules` and `stepsPerSecond`.
+  - `window.waterSimulation` — the live `Simulation` object itself (`box` and `molecules` are getters on it). Step rate is measured by the panel and by the tests, so it is not a field here.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1130,8 +1130,8 @@ fn chargeOf(index: u32) -> f32 {
   return Q_H;
 }
 
-/** Body-frame position of charge site a, for torque lever arms. */
-fn bodyChargeSiteOf(index: u32) -> vec3f {
+/** Body-frame position of charge site a, used as its torque lever arm. */
+fn bodyArmOf(index: u32) -> vec3f {
   if (index == 0u) { return BODY_HYDROGEN_A; }
   if (index == 1u) { return BODY_HYDROGEN_B; }
   return BODY_CHARGE;
@@ -1160,6 +1160,7 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
   let cutoff = params.cutoff;
   var force = vec3f(0.0);
   var torque = vec3f(0.0);
+  let oxygenArm = quatRotate(q, BODY_OXYGEN);
   for (var j = 0u; j < params.molecules; j++) {
     if (j == i) { continue; }
     let raw = sites[j * 3u].xyz - oxygen;
@@ -1174,9 +1175,10 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
     // Lever arms come from the orientation, not from the site coordinates: the sites
     // are placed relative to the wrapped oxygen, so `site - centre` is off by a box
     // vector whenever the two sit in different periodic images.
-    torque += cross(quatRotate(q, BODY_OXYGEN), pull);
+    torque += cross(oxygenArm, pull);
     for (var a = 0u; a < 3u; a++) {
       let here = chargeSiteOf(i, a);
+      let arm = quatRotate(q, bodyArmOf(a));
       let qa = chargeOf(a);
       for (var b = 0u; b < 3u; b++) {
         let there = chargeSiteOf(j, b) + shift;
@@ -1185,7 +1187,7 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
         let magnitude = reactionField(distance, qa * chargeOf(b), cutoff);
         let contribution = -magnitude * separation / distance;
         force += contribution;
-        torque += cross(quatRotate(q, bodyChargeSiteOf(a)), contribution);
+        torque += cross(arm, contribution);
       }
     }
   }
