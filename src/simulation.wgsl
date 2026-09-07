@@ -147,3 +147,93 @@ fn rescale(@builtin(global_invocation_id) id: vec3u) {
   state[i * 4u] = vec4f(state[i * 4u].xyz * params.scale, 1.0);
   writeSites(i);
 }
+
+struct Rotation {
+  q: vec4f,
+  l: vec3f,
+}
+
+/** PCG hash: a stateless stream indexed by molecule, step and lane. */
+fn hash(value: u32) -> u32 {
+  let mixed = value * 747796405u + 2891336453u;
+  let word = ((mixed >> ((mixed >> 28u) + 4u)) ^ mixed) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+
+fn uniform01(value: u32) -> f32 {
+  return f32(hash(value)) * 2.3283064365386963e-10;
+}
+
+fn gaussianPair(value: u32) -> vec2f {
+  let first = max(uniform01(value), 1e-7);
+  let second = uniform01(value ^ 0x9e3779b9u);
+  let radius = sqrt(-2.0 * log(first));
+  let angle = 6.283185307179586 * second;
+  return vec2f(radius * cos(angle), radius * sin(angle));
+}
+
+fn gaussian3(value: u32) -> vec3f {
+  let first = gaussianPair(value);
+  let second = gaussianPair(value * 2654435761u + 12345u);
+  return vec3f(first.x, first.y, second.x);
+}
+
+/** dq/dt for a body-frame angular velocity. */
+fn quatDerivative(q: vec4f, w: vec3f) -> vec4f {
+  return 0.5 * vec4f(q.w * w + cross(q.xyz, w), -dot(q.xyz, w));
+}
+
+/** Torque-free rotation, sub-stepped so Euler's equations stay accurate over half a step. */
+fn freeRotation(start: vec4f, momentum: vec3f, duration: f32) -> Rotation {
+  var q = start;
+  var l = momentum;
+  let h = duration / 4.0;
+  for (var sub = 0u; sub < 4u; sub++) {
+    let w = l / INERTIA;
+    l -= h * cross(w, l);
+    q = normalize(q + h * quatDerivative(q, w));
+  }
+  return Rotation(q, l);
+}
+
+/** One BAOAB step. The trailing half kick is the leading one of the next step. */
+@compute @workgroup_size(64)
+fn integrate(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= params.molecules) { return; }
+  var centre = state[i * 4u].xyz;
+  var q = state[i * 4u + 1u];
+  var velocity = state[i * 4u + 2u].xyz;
+  var angular = state[i * 4u + 3u].xyz;
+  let dt = params.dt;
+  let force = forceTorque[i * 2u].xyz;
+  let torque = quatInverseRotate(q, forceTorque[i * 2u + 1u].xyz);
+
+  velocity += 0.5 * dt * FORCE_TO_ACCELERATION * force / MOLECULE_MASS;
+  angular += 0.5 * dt * FORCE_TO_ACCELERATION * torque;
+
+  centre += 0.5 * dt * velocity;
+  var rotation = freeRotation(q, angular, 0.5 * dt);
+  q = rotation.q;
+  angular = rotation.l;
+
+  let decay = exp(-params.friction * dt);
+  let spread = sqrt(1.0 - decay * decay);
+  let energy = BOLTZMANN * params.temperature * FORCE_TO_ACCELERATION;
+  let stream = params.seed ^ (i * 2654435761u) ^ (params.step * 40503u);
+  velocity = decay * velocity + spread * sqrt(energy / MOLECULE_MASS) * gaussian3(stream);
+  angular = decay * angular + spread * sqrt(energy * INERTIA) * gaussian3(stream ^ 0x5bf03635u);
+
+  centre += 0.5 * dt * velocity;
+  rotation = freeRotation(q, angular, 0.5 * dt);
+  q = rotation.q;
+  angular = rotation.l;
+
+  // Wrapping the centre keeps f32 coordinates small over a long session.
+  centre -= params.box * floor(centre / params.box);
+  state[i * 4u] = vec4f(centre, 1.0);
+  state[i * 4u + 1u] = q;
+  state[i * 4u + 2u] = vec4f(velocity, 0.0);
+  state[i * 4u + 3u] = vec4f(angular, 0.0);
+  writeSites(i);
+}

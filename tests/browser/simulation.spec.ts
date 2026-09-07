@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { BOLTZMANN, FORCE_TO_ACCELERATION, MOLECULE_MASS, OH_LENGTH, principalMoments } from '../../src/water-model';
 
 interface Fixture {
   box: number; cutoff: number; molecules: number;
@@ -70,4 +71,91 @@ test('forces and torques are invariant under a whole-system translation across a
   expect(result.forces.length).toBe(fixture.molecules * 3);
   expect(error(result.forces, fixture.forces)).toBeLessThan(1e-3);
   expect(error(result.torques, fixture.torques)).toBeLessThan(1e-3);
+});
+
+/** Kinetic temperatures computed from the raw state, the way the reduction kernel will. */
+function temperatures(state: number[], molecules: number) {
+  const inertia = principalMoments();
+  let translational = 0, rotational = 0;
+  const momentum = [0, 0, 0];
+  for (let molecule = 0; molecule < molecules; molecule++) {
+    for (const axis of [0, 1, 2]) {
+      const velocity = state[molecule * 16 + 8 + axis];
+      const angular = state[molecule * 16 + 12 + axis];
+      translational += MOLECULE_MASS * velocity * velocity;
+      rotational += angular * angular / inertia[axis];
+      momentum[axis] += MOLECULE_MASS * velocity;
+    }
+  }
+  const degrees = 3 * molecules * BOLTZMANN * FORCE_TO_ACCELERATION;
+  return { translational: translational / degrees, rotational: rotational / degrees, momentum };
+}
+
+test('molecules stay rigid after five thousand steps', async ({ page }) => {
+  test.setTimeout(120000);
+  await ready(page);
+  const result = await page.evaluate(async LENGTH => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(64);
+    simulation.setTemperature(300);
+    for (let batch = 0; batch < 50; batch++) simulation.step(100);
+    const sites = await simulation.readSites();
+    let worstBond = 0, worstAngle = 0;
+    for (let molecule = 0; molecule < simulation.molecules; molecule++) {
+      const site = (index: number) => [0, 1, 2].map(axis => sites[molecule * 12 + index * 4 + axis]);
+      const oxygen = site(0);
+      const bonds = [1, 2].map(index => site(index).map((value, axis) => value - oxygen[axis]));
+      for (const bond of bonds) worstBond = Math.max(worstBond, Math.abs(Math.hypot(...bond) - LENGTH));
+      const cosine = bonds[0].reduce((sum, value, axis) => sum + value * bonds[1][axis], 0) / LENGTH ** 2;
+      worstAngle = Math.max(worstAngle, Math.abs(Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI - 104.52));
+    }
+    return { worstBond, worstAngle, timePs: simulation.timePs };
+  }, OH_LENGTH);
+  expect(result.timePs).toBeCloseTo(10, 6);
+  expect(result.worstBond).toBeLessThan(0.001);
+  expect(result.worstAngle).toBeLessThan(0.05);
+});
+
+test('the thermostat brings the sample to its set point and holds it', async ({ page }) => {
+  test.setTimeout(180000);
+  await ready(page);
+  const samples = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(216);
+    simulation.setTemperature(300);
+    // Two picoseconds of equilibration at 5 /ps friction, then five samples over 2.5 ps.
+    for (let batch = 0; batch < 10; batch++) simulation.step(100);
+    const collected: number[][] = [];
+    for (let sample = 0; sample < 5; sample++) {
+      simulation.step(250);
+      collected.push(Array.from(await simulation.readState() as Float32Array));
+    }
+    return { collected, molecules: simulation.molecules };
+  });
+  const measured = samples.collected.map(state => temperatures(state, samples.molecules));
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  expect(mean(measured.map(entry => entry.translational))).toBeGreaterThan(275);
+  expect(mean(measured.map(entry => entry.translational))).toBeLessThan(325);
+  expect(mean(measured.map(entry => entry.rotational))).toBeGreaterThan(275);
+  expect(mean(measured.map(entry => entry.rotational))).toBeLessThan(325);
+});
+
+test('the sample never acquires a net drift', async ({ page }) => {
+  await ready(page);
+  const drift = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(64);
+    simulation.setTemperature(450);
+    for (let batch = 0; batch < 20; batch++) simulation.step(100);
+    const state = Array.from(await simulation.readState() as Float32Array);
+    return { state, molecules: simulation.molecules };
+  });
+  const { momentum, translational } = temperatures(drift.state, drift.molecules);
+  // A Langevin thermostat does not conserve momentum exactly; it must stay small next
+  // to the thermal momentum of a single molecule, sqrt(m kB T / 100) in amu A/ps.
+  const thermal = Math.sqrt(MOLECULE_MASS * BOLTZMANN * translational * FORCE_TO_ACCELERATION);
+  for (const axis of [0, 1, 2]) {
+    expect(Math.abs(momentum[axis])).toBeLessThan(3 * thermal * Math.sqrt(drift.molecules));
+  }
+  expect(Number.isFinite(translational)).toBe(true);
 });

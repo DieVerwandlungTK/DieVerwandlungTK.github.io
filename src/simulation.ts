@@ -33,6 +33,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
   });
   const forceKernel = compute(gpu, shader, { entry: 'forces' });
   const rescaleKernel = compute(gpu, shader, { entry: 'rescale' });
+  const integrateKernel = compute(gpu, shader, { entry: 'integrate' });
   const statsBuffer = storage(gpu, 4 * 4, 'read-write');
 
   let molecules = options.molecules;
@@ -60,6 +61,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
       charges: buffers.charges, forceTorque: buffers.forceTorque, stats: statsBuffer };
     forceKernel.set(bag);
     rescaleKernel.set(bag);
+    integrateKernel.set(bag);
   }
 
   /** Uploads a fresh ice configuration and the matching uniforms. */
@@ -81,6 +83,20 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
 
   async function readSites(): Promise<Float32Array> {
     return new Float32Array(await buffers.sites.read());
+  }
+
+  async function readState(): Promise<Float32Array> {
+    return new Float32Array(await buffers.state.read());
+  }
+
+  /** Advances the sample by `count` BAOAB steps: one force evaluation each. */
+  function step(count: number) {
+    for (let index = 0; index < count; index++) {
+      params.set({ step: stepCount });
+      forceKernel.dispatch(groups());
+      integrateKernel.dispatch(groups());
+      stepCount++;
+    }
   }
 
   /**
@@ -141,6 +157,8 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     get cutoff() { return simulation.cutoff; },
     get timePs() { return stepCount * TIME_STEP; },
     readSites,
+    readState,
+    step,
     evaluateForces,
     setTemperature(kelvin: number) { temperature = kelvin; params.set({ temperature }); },
     /** Scales every centre of mass on the GPU, then rebuilds the sites for the new box. */
