@@ -40,6 +40,21 @@ test('GPU forces and torques match the Python reference within f32 precision', a
   expect(error(result.torques, fixture.torques)).toBeLessThan(1e-3);
 });
 
+// Checks the energy *expression* the force kernel accumulates on a fixed configuration -- it is
+// not a sentinel for a dynamics bug, since a wrong potential could still integrate stably.
+test('the accumulated potential energy matches the Python reference on the fixture configuration', async ({ page }) => {
+  const fixture: Fixture = JSON.parse(await readFile('tests/fixtures/reference-forces-64.json', 'utf8'));
+  await ready(page);
+  const potentialEnergy = await page.evaluate(async data => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(data.molecules);
+    simulation.setDensity(1);
+    const result = await simulation.evaluateForces(new Float32Array(data.sites));
+    return result.potentialEnergy as number;
+  }, fixture);
+  expect(Math.abs(potentialEnergy - fixture.potentialEnergy) / Math.abs(fixture.potentialEnergy)).toBeLessThan(1e-3);
+});
+
 test('forces and torques are invariant under a whole-system translation across a box face', async ({ page }) => {
   const fixture: Fixture = JSON.parse(await readFile('tests/fixtures/reference-forces-64.json', 'utf8'));
   // Shift every site of every molecule by the same vector, half the box on each axis. Forces
@@ -96,7 +111,13 @@ function temperatures(state: number[], molecules: number) {
   return { translational: translational / degrees, rotational: rotational / degrees, momentum };
 }
 
-test('molecules stay rigid after five thousand steps', async ({ page }) => {
+// Named for what this actually checks, not for "rigidity": `writeSites` rebuilds both hydrogens
+// from the body-frame constants via quatRotate(q, BODY_H - BODY_O), and `freeRotation`
+// normalises the quaternion every sub-step, so the bond length, the H-O-H angle and the
+// quaternion norm are algebraically fixed by construction -- they cannot drift unless the
+// quaternion itself has gone non-finite (NaN or Inf). This is a NaN/divergence detector wearing
+// a rigidity label; the test below this one exercises something that can genuinely drift.
+test('geometry reconstruction and the quaternion stay finite after five thousand steps', async ({ page }) => {
   test.setTimeout(120000);
   await ready(page);
   const result = await page.evaluate(async LENGTH => {
@@ -127,6 +148,50 @@ test('molecules stay rigid after five thousand steps', async ({ page }) => {
   expect(result.worstBond).toBeLessThan(0.001);
   expect(result.worstAngle).toBeLessThan(0.05);
   expect(result.worstQuaternionNorm).toBeLessThan(1e-5);
+});
+
+test('the body-frame angular momentum magnitude holds under torque-free rotation', async ({ page }) => {
+  test.setTimeout(60000);
+  await ready(page);
+  const STEPS = 500;
+  const result = await page.evaluate(async steps => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(64);
+    // A density this low pushes every molecule's nearest neighbour far outside the 9 A cutoff, so
+    // the force kernel finds no pairs within range and every molecule feels exactly zero torque
+    // and zero force -- an exact torque-free run for all 64 molecules at once, without needing a
+    // dedicated one-molecule configuration (setMolecules only accepts 64/216/512).
+    simulation.setDensity(1e-9);
+    // Zero temperature makes the thermostat's noise term exactly zero (it scales with sqrt(T)),
+    // leaving only its deterministic friction decay -- see the expected-value comment below.
+    simulation.setTemperature(0);
+    const magnitudes = async () => {
+      const state = Array.from(await simulation.readState() as Float32Array);
+      return Array.from({ length: simulation.molecules }, (_, molecule) =>
+        Math.hypot(...[0, 1, 2].map(axis => state[molecule * 16 + 12 + axis])));
+    };
+    const initial = await magnitudes();
+    simulation.step(steps);
+    const final = await magnitudes();
+    return { initial, final };
+  }, STEPS);
+  // Mirrors src/simulation.ts's TIME_STEP and FRICTION (not exported, like OH_LENGTH elsewhere in
+  // this suite). With zero torque and zero thermostat noise, every step's O-stage scales the
+  // whole angular-momentum vector by exactly this factor -- a genuine physical change, not a bug
+  // -- and the two torque-free drifts either side of it (freeRotation) must leave the magnitude
+  // exactly unchanged. That conservation, not the friction decay, is what this test pins down.
+  const TIME_STEP = 0.002, FRICTION = 5;
+  const expectedRatio = Math.exp(-FRICTION * TIME_STEP) ** STEPS;
+  for (let molecule = 0; molecule < result.initial.length; molecule++) {
+    const actualRatio = result.final[molecule] / result.initial[molecule];
+    // A pre-fix regression (see .superpowers/sdd/task-6-report.md) measured freeRotation
+    // inflating ||L_body|| by about 1.81e-5 relative per call, two calls per step; compounded
+    // over 500 steps (1000 calls) that is roughly a 1.8% excess over the expected decay, well
+    // outside the 0.5% margin below. A from-scratch measurement on this branch (post-fix) put the
+    // actual deviation at f32-round-off level, several orders of magnitude under that margin (see
+    // the task report appended to this task's own report).
+    expect(Math.abs(actualRatio / expectedRatio - 1)).toBeLessThan(0.005);
+  }
 });
 
 test('the thermostat brings the sample to its set point and holds it', async ({ page }) => {
@@ -202,6 +267,34 @@ test('the reduction kernel reports the same temperatures as the raw state', asyn
   expect(result.stats.maximumForce).toBeLessThan(50000);
 });
 
+// The bound above (0 < maximumForce < 50000) is a 5000x-wide ceiling next to the ~10 kJ/mol/A an
+// equilibrium sample actually produces -- wide enough to hide a badly broken reduction. This pins
+// the exact value the reduce kernel's max() tree should compute, cross-checked host-side against
+// the same GPU-computed forces (evaluateForces already validates those elementwise against the
+// Python reference in the fixture test above), so it isolates the reduction step itself.
+test('the maximum-force statistic matches a host-computed max over the same GPU forces', async ({ page }) => {
+  const fixture: Fixture = JSON.parse(await readFile('tests/fixtures/reference-forces-64.json', 'utf8'));
+  await ready(page);
+  const result = await page.evaluate(async data => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(data.molecules);
+    simulation.setDensity(1);
+    const { forces } = await simulation.evaluateForces(new Float32Array(data.sites));
+    // evaluateForces leaves the forceTorque buffer holding these same forces (only state, sites
+    // and charges are restored afterwards), so the reduce kernel dispatched by readStats() below
+    // computes its max over exactly the values read back here.
+    const stats = await simulation.readStats();
+    return { forces: Array.from(forces as Float32Array), maximumForce: stats.maximumForce };
+  }, fixture);
+  let expected = 0;
+  for (let molecule = 0; molecule < fixture.molecules; molecule++) {
+    const magnitude = Math.hypot(...[0, 1, 2].map(axis => result.forces[molecule * 3 + axis]));
+    expected = Math.max(expected, magnitude);
+  }
+  expect(expected).toBeGreaterThan(0);
+  expect(Math.abs(result.maximumForce - expected) / expected).toBeLessThan(1e-3);
+});
+
 test('the divergence guard survives NaN saturation and recovers after a restart', async ({ page }) => {
   test.setTimeout(60000);
   await ready(page);
@@ -227,6 +320,35 @@ test('the divergence guard survives NaN saturation and recovers after a restart'
   expect(needsRestart(result.diverged)).toBe(true);
   expect(result.healthy.nonFinite).toBe(false);
   expect(needsRestart(result.healthy)).toBe(false);
+});
+
+// setDensity(15) above saturates every molecule to NaN within a couple of steps, so it cannot
+// tell a correct reduction from one that, say, only ORs together half of the max()-tree or drops
+// the last lane's second stride pass -- every lane's every molecule is broken regardless. This
+// isolates exactly one molecule, at the highest index, so only the specific lane and specific
+// stride iteration that molecule falls into carries a non-finite value.
+test('the divergence guard fires from a single poisoned molecule at the highest index', async ({ page }) => {
+  test.setTimeout(30000);
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    // 512 molecules exceeds the reduce kernel's 256 lanes, so the stride loop
+    // (`for (var i = lane; i < molecules; i += 256)`) runs twice per lane, and molecule 511 is
+    // reached only on a lane's *second* iteration -- the shape of loop the brief calls out.
+    simulation.setMolecules(512);
+    simulation.setDensity(1);
+    simulation.step(5);
+    const healthyBefore = await simulation.readStats();
+    const last = simulation.molecules - 1;
+    const state = Array.from(await simulation.readState() as Float32Array);
+    const poisoned = state.slice(last * 16, last * 16 + 16);
+    poisoned[8] = Number.NaN;   // velocity.x of the highest-index molecule only
+    await simulation.pokeState(last, poisoned);
+    const poisonedStats = await simulation.readStats();
+    return { healthyBefore, poisonedStats };
+  });
+  expect(result.healthyBefore.nonFinite).toBe(false);
+  expect(result.poisonedStats.nonFinite).toBe(true);
 });
 
 /** Fraction of ideal tetrahedral order over the four nearest oxygen neighbours. */

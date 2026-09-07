@@ -1,4 +1,4 @@
-import { compute, storage, uniforms, type Gpu } from 'vgpu';
+import { compute, storage, uniforms, type Gpu, type StorageBuffer } from 'vgpu';
 import shader from './simulation.wgsl?raw';
 import { MASS_H, MASS_O, MOLECULE_COUNTS, MOLECULE_MASS, boxLength, cutoffFor, type Vector3 } from './water-model';
 import { buildInitialState, chargeSite, moleculeSites, orientationOf,
@@ -18,6 +18,28 @@ export interface SimulationOptions {
 
 /** Float32Array's default buffer type admits SharedArrayBuffer, which write() rejects. */
 const source = (data: Float32Array): BufferSource => data as BufferSource;
+
+/** vgpu frees storage with gpu.dispose(); an early destroy keeps setMolecules/dispose from
+ * leaking the previous buffer set. Mirrors src/background.ts's `release`. */
+const release = (buffer: StorageBuffer) => (buffer as { destroy?: () => void }).destroy?.();
+
+/**
+ * Reads issued against the live buffer set (readSites/readState/readStats/evaluateForces/
+ * pokeState all funnel through `tracked`). A later setMolecules() or dispose() snapshots this set
+ * and waits for whatever was already in flight to settle before destroying the buffers it read
+ * from -- destroying a buffer while its own read (a GPU copy into a staging buffer, then
+ * mapAsync) hasn't finished is a genuine WebGPU hazard, not merely wasted work: the resulting
+ * device error reaches src/background.ts's `gpu.onError` handler and tears down the whole GPU.
+ * src/main.ts's render loop keeps exactly such a read in flight on every frame, independently of
+ * whatever a test or the molecule-count control does, so this is not a hypothetical race.
+ */
+const pendingReads = new Set<Promise<unknown>>();
+function tracked<T>(promise: Promise<T>): Promise<T> {
+  pendingReads.add(promise);
+  const forget = () => pendingReads.delete(promise);
+  promise.then(forget, forget);
+  return promise;
+}
 
 const TIME_STEP = 0.002;      // ps
 const FRICTION = 5;           // 1/ps
@@ -81,16 +103,16 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
   const groups = () => Math.ceil(molecules / WORKGROUP);
 
   async function readSites(): Promise<Float32Array> {
-    return new Float32Array(await buffers.sites.read());
+    return new Float32Array(await tracked(buffers.sites.read()));
   }
 
   async function readState(): Promise<Float32Array> {
-    return new Float32Array(await buffers.state.read());
+    return new Float32Array(await tracked(buffers.state.read()));
   }
 
   async function readStats(): Promise<SimulationStats> {
     reduceKernel.dispatch(1);
-    const values = new Float32Array(await statsBuffer.read());
+    const values = new Float32Array(await tracked(statsBuffer.read()));
     return {
       translationalTemperature: values[0],
       rotationalTemperature: values[1],
@@ -118,7 +140,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
   async function evaluateForces(packed: Float32Array) {
     if (packed.length !== molecules * 9) throw new Error('Packed configuration does not match the molecule count');
     const [savedState, savedSites, savedCharges] = await Promise.all(
-      [buffers.state, buffers.sites, buffers.charges].map(async buffer => new Float32Array(await buffer.read())));
+      [buffers.state, buffers.sites, buffers.charges].map(async buffer => new Float32Array(await tracked(buffer.read()))));
     const sites = new Float32Array(molecules * 12);
     const charges = new Float32Array(molecules * 4);
     const state = new Float32Array(molecules * 16);
@@ -146,19 +168,42 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     buffers.sites.write(sites);
     buffers.charges.write(charges);
     forceKernel.dispatch(groups());
-    const raw = new Float32Array(await buffers.forceTorque.read());
+    const raw = new Float32Array(await tracked(buffers.forceTorque.read()));
     const forces = new Float32Array(molecules * 3);
     const torques = new Float32Array(molecules * 3);
+    // The forces kernel stows each molecule's accumulated pairwise potential energy in the
+    // otherwise-unused w component of its torque vec4 (forceTorque[i*2+1].w); see the comment on
+    // `energy` there. Summing it over every molecule double counts each pair, since both
+    // molecules in a pair independently accumulate the same value into their own w component, so
+    // halve the sum to match scripts/reference_forces.py's potential(), which sums each pair once.
+    let doubledEnergy = 0;
     for (let molecule = 0; molecule < molecules; molecule++) {
       for (const axis of [0, 1, 2]) {
         forces[molecule * 3 + axis] = raw[molecule * 8 + axis];
         torques[molecule * 3 + axis] = raw[molecule * 8 + 4 + axis];
       }
+      doubledEnergy += raw[molecule * 8 + 7];
     }
     buffers.state.write(source(savedState));
     buffers.sites.write(source(savedSites));
     buffers.charges.write(source(savedCharges));
-    return { forces, torques };
+    return { forces, torques, potentialEnergy: doubledEnergy / 2 };
+  }
+
+  /**
+   * Test-only entry point: overwrites one molecule's raw state vector (the 16-float centre /
+   * quaternion / velocity / angular-momentum layout `readState()` returns), leaving every other
+   * molecule and every other buffer untouched. `evaluateForces` can only inject a value by
+   * uploading a full configuration and re-running the force kernel, which would spread a
+   * non-finite value into every neighbouring molecule's own force sum through the pairwise
+   * interaction loop -- exactly what the divergence-guard test needs to avoid when it poisons a
+   * single molecule. This bypasses the force kernel entirely, so only the named molecule changes.
+   */
+  async function pokeState(molecule: number, values: ArrayLike<number>) {
+    if (values.length !== 16) throw new Error('Expected 16 floats: centre, quaternion, velocity, angular momentum');
+    const state = new Float32Array(await tracked(buffers.state.read()));
+    state.set(values, molecule * 16);
+    buffers.state.write(source(state));
   }
 
   const api = {
@@ -171,6 +216,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     readStats,
     step,
     evaluateForces,
+    pokeState,
     setTemperature(kelvin: number) { temperature = kelvin; params.set({ temperature }); },
     /** Scales every centre of mass on the GPU, then rebuilds the sites for the new box. */
     setDensity(ratio: number) {
@@ -186,17 +232,32 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
       if (!(MOLECULE_COUNTS as readonly number[]).includes(count)) {
         throw new Error(`Unsupported molecule count: ${count}. Expected one of ${MOLECULE_COUNTS.join(', ')}`);
       }
+      const stale = buffers;
+      // Snapshot before reassigning `buffers`: anything in here was necessarily reading from
+      // `stale` (readSites/readState/readStats/evaluateForces/pokeState all read the buffers
+      // current *at the time they were called*), and nothing added after this line can be, since
+      // every read call site above resolves `buffers` fresh.
+      const staleReads = Array.from(pendingReads);
       molecules = count;
       stepCount = 0;
       buffers = allocate();
-      load();
+      load();   // Binds the new buffers to every kernel before the old ones are released below.
+      void Promise.allSettled(staleReads).then(() => {
+        for (const buffer of Object.values(stale)) release(buffer);
+      });
     },
     reset() {
       seed = (Math.random() * 0xffffffff) >>> 0;
       stepCount = 0;
       load();
     },
-    dispose() { /* buffers belong to the gpu and are freed by gpu.dispose() */ },
+    dispose() {
+      const stale = buffers;
+      const staleReads = Array.from(pendingReads);
+      void Promise.allSettled(staleReads).then(() => {
+        for (const buffer of Object.values(stale)) release(buffer);
+      });
+    },
   };
 
   return api;

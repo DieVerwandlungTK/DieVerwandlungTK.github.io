@@ -80,6 +80,30 @@ fn reactionField(r: f32, product: f32, cutoff: f32) -> f32 {
   return COULOMB * product * (1.0 / (r * r) - r / (cutoff * cutoff * cutoff));
 }
 
+/**
+ * Force-shifted Lennard-Jones potential energy, continuous with `lennardJones`'s force at the
+ * cutoff by construction: U(r) = U_lj(r) - U_lj(rc) + (r - rc) * F_lj(rc), where F_lj(rc) is the
+ * *raw*, unshifted force magnitude at the cutoff (not `lennardJones(cutoff, cutoff)`, which is
+ * zero there since that function already subtracts its own edge term). Deliberately duplicates
+ * `lennardJones`'s pow() calls instead of refactoring it to share this, so the existing force
+ * values -- already validated against scripts/reference_forces.py -- cannot change by a single
+ * bit. Mirrors that script's `_lennard_jones`.
+ */
+fn lennardJonesEnergy(r: f32, cutoff: f32) -> f32 {
+  let s6 = pow(SIGMA_O / r, 6.0);
+  let energy = 4.0 * EPSILON_O * (s6 * s6 - s6);
+  let edgeS6 = pow(SIGMA_O / cutoff, 6.0);
+  let edgeEnergy = 4.0 * EPSILON_O * (edgeS6 * edgeS6 - edgeS6);
+  let edgeForce = 24.0 * EPSILON_O * (2.0 * edgeS6 * edgeS6 - edgeS6) / cutoff;
+  return energy - edgeEnergy + (r - cutoff) * edgeForce;
+}
+
+/** Onsager reaction field potential energy with conducting boundary; vanishes at the cutoff,
+ * matching `reactionField`'s force. Mirrors scripts/reference_forces.py's `_reaction_field`. */
+fn reactionFieldEnergy(r: f32, product: f32, cutoff: f32) -> f32 {
+  return COULOMB * product * (1.0 / r + r * r / (2.0 * cutoff * cutoff * cutoff) - 3.0 / (2.0 * cutoff));
+}
+
 @compute @workgroup_size(64)
 fn forces(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -89,6 +113,13 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
   let cutoff = params.cutoff;
   var force = vec3f(0.0);
   var torque = vec3f(0.0);
+  // Accumulated potential energy for this molecule's own pair encounters. Every unordered pair
+  // (i, j) is visited by both thread i and thread j -- each independently computes the same
+  // energy value (LJ depends only on r; the reaction-field double sum over sites is symmetric
+  // under swapping i and j) and adds the *full* value here, so summing this across every molecule
+  // double counts every pair. That is deliberate: it is cheaper than halving per-term in the hot
+  // loop below, and simulation.ts's evaluateForces() halves the total once, on read-back.
+  var energy = 0.0;
   // Torque arms come from the quaternion (quatRotate(q, BODY_*)), not from `site - centre`:
   // `sites`' oxygen is wrapped into [0, box) while `state`'s centre of mass is not, so once a
   // molecule's centre and its wrapped oxygen land in different periodic images that subtraction
@@ -108,6 +139,7 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
     let pull = -lennardJones(r, cutoff) * delta / r;
     force += pull;
     torque += cross(oxygenArm, pull);
+    energy += lennardJonesEnergy(r, cutoff);
     for (var a = 0u; a < 3u; a++) {
       let here = chargeSiteOf(i, a);
       let arm = quatRotate(q, bodyArmOf(a));
@@ -116,15 +148,17 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
         let there = chargeSiteOf(j, b) + shift;
         let separation = there - here;
         let distance = length(separation);
-        let magnitude = reactionField(distance, qa * chargeOf(b), cutoff);
+        let product = qa * chargeOf(b);
+        let magnitude = reactionField(distance, product, cutoff);
         let contribution = -magnitude * separation / distance;
         force += contribution;
         torque += cross(arm, contribution);
+        energy += reactionFieldEnergy(distance, product, cutoff);
       }
     }
   }
   forceTorque[i * 2u] = vec4f(force, 0.0);
-  forceTorque[i * 2u + 1u] = vec4f(torque, 0.0);
+  forceTorque[i * 2u + 1u] = vec4f(torque, energy);
 }
 
 /** Rebuilds the drawable sites and the M site from the rigid-body state. */

@@ -1,6 +1,8 @@
-export type Vector3 = [number, number, number];
-export const OH_LENGTH = .9572;
-export const HOH_ANGLE = 104.52 * Math.PI / 180;
+// Vector3, OH_LENGTH and HOH_ANGLE are defined once in water-model.ts; re-exported here so
+// existing importers (tests/scene.test.ts, src/scene.ts) don't need to change their import path.
+export type { Vector3 } from './water-model';
+export { OH_LENGTH, HOH_ANGLE } from './water-model';
+import type { Vector3 } from './water-model';
 const length = (v: Vector3) => Math.hypot(...v);
 const dot = (a: Vector3,b: Vector3) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 
