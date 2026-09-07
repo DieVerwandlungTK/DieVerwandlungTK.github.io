@@ -1770,10 +1770,6 @@ fn isNonFinite(value: f32) -> bool {
   return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;
 }
 
-fn anyNonFinite(value: vec3f) -> bool {
-  return isNonFinite(value.x) || isNonFinite(value.y) || isNonFinite(value.z);
-}
-
 const REDUCTION_LANES = 256u;
 var<workgroup> laneTranslational: array<f32, REDUCTION_LANES>;
 var<workgroup> laneRotational: array<f32, REDUCTION_LANES>;
@@ -1798,7 +1794,9 @@ fn reduce(@builtin(local_invocation_id) local: vec3u) {
     // Bit inspection, not `x != x` or a magnitude test: some WebGPU backends compile
     // with fast-math semantics where NaN comparisons are false and max() discards a NaN
     // operand, which leaves a comparison-based guard dead on real hardware.
-    if (anyNonFinite(velocity) || anyNonFinite(angular) || anyNonFinite(force)) { broken = 1.0; }
+    if (isNonFinite(velocity.x) || isNonFinite(velocity.y) || isNonFinite(velocity.z) ||
+        isNonFinite(angular.x) || isNonFinite(angular.y) || isNonFinite(angular.z) ||
+        isNonFinite(force.x) || isNonFinite(force.y) || isNonFinite(force.z)) { broken = 1.0; }
   }
   laneTranslational[lane] = translational;
   laneRotational[lane] = rotational;
