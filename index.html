@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f5f8fa" />
+  <meta name="description" content="自己紹介、研究テーマ、論文・学会発表を紹介する研究者のホームページ。" />
+  <title>Your Name — Research &amp; Notes</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <a class="skip-link" href="#about">本文へスキップ</a>
+  <header class="site-header wrap">
+    <a class="wordmark" href="#top" aria-label="トップへ"><span class="mark" aria-hidden="true">y<span>n</span></span><span>Your Name<span class="wordmark-sub">RESEARCH &amp; NOTES</span></span></a>
+    <nav aria-label="メインナビゲーション">
+      <a href="#about">About</a><a href="#research">Research</a><a href="#publications">Publications</a><a href="#presentations">Presentations</a><a href="#links">Links <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span> A PERSONAL RESEARCH WEBSITE</p>
+        <h1 id="hero-title">Your Name<span class="name-ja">氏名をここに</span></h1>
+        <p class="hero-statement">小さな分子から、<br />大きな問いへ。</p>
+        <p class="hero-description">水の構造とダイナミクス、そして相転移。<br />分子のふるまいを通して、物質の不思議を探ります。</p>
+        <p class="placeholder-note">紹介文はサンプルです。ご自身の研究内容に変更できます。</p>
+        <a class="primary-link" href="#research">研究について <span aria-hidden="true">↗</span></a>
+        <div class="affiliation"><span class="small-label">AFFILIATION</span><span>大学名・研究科・専攻<br /><span class="muted">職位・学年</span></span></div>
+      </div>
+
+      <div class="molecular-stage" aria-hidden="true">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <span class="stage-label">MOLECULAR PERSPECTIVES</span>
+        <img id="static-molecules" src="./molecules.svg" alt="" />
+        <canvas id="molecules"></canvas>
+      </div>
+
+      <aside class="simulation-panel" aria-label="背景の分子シミュレーション">
+        <div class="simulation-heading"><span class="small-label">WATER / <span id="phase-label">ICE Ic</span></span><span class="model-tag">TIP4P-Ew</span></div>
+        <div class="simulation-readout"><span><strong id="temperature">180</strong><span class="unit"> K</span></span><span class="simulation-caption">64 molecules<span id="sim-time">0.0 ps</span><span id="playback-status" role="status">静止画を表示中</span></span></div>
+        <div class="playback-controls">
+          <button id="play-pause" type="button" disabled aria-label="軌跡を再生">再生</button>
+          <label class="sr-only" for="timeline">軌跡の再生位置</label>
+          <input id="timeline" type="range" min="0" max="1000" value="0" disabled aria-valuetext="0.0 ピコ秒" />
+          <label class="sr-only" for="rate">再生速度</label>
+          <select id="rate" disabled><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+          <button id="replay" type="button" disabled aria-label="軌跡を最初から再生">↺</button>
+        </div>
+        <details class="simulation-details"><summary>この背景について <span aria-hidden="true">＋</span></summary><p>剛体TIP4P-Ew水64分子の事前計算軌跡です。酸素と2つの水素を描き、電荷サイトは描画していません。陽子無秩序な氷Icを180 Kから450 Kへ定積で加熱した小さな系で、平衡融点の測定ではありません。表示の温度はサーモスタットの設定値、時間はシミュレーション時間です。</p><p>実線は拘束された分子内O-H結合で、加熱しても切れません。破線は軌跡から幾何学的に判定した水素結合（O···O ≤ 3.5 Å、O-H···O ≥ 150°）で、追加の力ではありません。周期境界のバルク水を球状に切り出した窓を表示しており、液滴や表面ではありません。</p><p><a href="https://doi.org/10.1063/1.1683075" target="_blank" rel="noopener noreferrer">水モデルの原論文 ↗</a> · <a href="./data/water.json" download>メタデータ ↓</a> · <a href="./data/water.bin" download>座標 ↓</a></p></details>
+      </aside>
+      <a href="#about" class="scroll-cue"><span>SCROLL TO EXPLORE</span><span aria-hidden="true">↓</span></a>
+    </section>
+
+    <div class="content-area">
+      <section id="about" class="section wrap" aria-labelledby="about-title">
+        <div class="section-heading"><span class="section-number">01 /</span><h2 id="about-title">About<span>自己紹介</span></h2></div>
+        <div class="about-content"><p class="large-copy">分子の世界にある、<br class="mobile-break" />まだ知らないつながりを。</p><p>［自己紹介文］所属、これまでの経歴、研究への関心などをここに記載します。どのような問いに向き合い、どのような手法で研究しているのかを、簡潔に紹介するスペースです。</p><dl class="profile-facts"><div><dt>所属</dt><dd>［大学名・研究科・研究室］</dd></div><div><dt>研究分野</dt><dd>［専門分野・研究キーワード］</dd></div><div><dt>拠点</dt><dd>［都市・国］</dd></div></dl></div>
+      </section>
+
+      <section id="research" class="section wrap research-section" aria-labelledby="research-title">
+        <div class="section-heading"><span class="section-number">02 /</span><h2 id="research-title">Research<span>研究紹介</span></h2></div>
+        <div class="section-body"><p class="section-intro">研究テーマと、その先にある問い。<span class="placeholder-pill">サンプルテーマ</span></p>
+          <div class="research-grid">
+            <article class="research-card"><div class="research-icon lattice-icon" aria-hidden="true">⠿</div><span class="small-label">01 — PHASE TRANSITIONS</span><h3>相転移と構造</h3><p>［研究概要］水や氷の構造が変化する仕組み、相転移に関する研究の背景と目的を記載します。</p><div class="tags"><span>Water &amp; Ice</span><span>Structure</span></div></article>
+            <article class="research-card"><div class="research-icon wave-icon" aria-hidden="true">∿</div><span class="small-label">02 — MOLECULAR DYNAMICS</span><h3>分子のダイナミクス</h3><p>［研究概要］分子シミュレーションや解析手法、それらを用いて明らかにしたい問いを記載します。</p><div class="tags"><span>Simulation</span><span>Dynamics</span></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="publications" class="section wrap" aria-labelledby="publications-title">
+        <div class="section-heading"><span class="section-number">03 /</span><h2 id="publications-title">Publications<span>論文</span></h2></div>
+        <div class="section-body"><p class="section-intro">論文・プレプリント<span class="count-label">掲載準備中</span></p><article class="publication-entry"><span class="entry-year">YYYY</span><div><span class="entry-type">JOURNAL ARTICLE / PLACEHOLDER</span><h3>論文タイトルをここに記載</h3><p>［著者名］ · <em>［掲載誌名］</em> · ［巻・ページ・出版年］</p><span class="pending-link">DOI / PDF は公開時に追加</span></div></article><article class="publication-entry"><span class="entry-year">YYYY</span><div><span class="entry-type">PREPRINT / PLACEHOLDER</span><h3>プレプリントのタイトルをここに記載</h3><p>［著者名］ · ［プレプリントサーバー・公開年］</p><span class="pending-link">原稿へのリンクは公開時に追加</span></div></article></div>
+      </section>
+
+      <section id="presentations" class="section wrap" aria-labelledby="presentations-title">
+        <div class="section-heading"><span class="section-number">04 /</span><h2 id="presentations-title">Presentations<span>学会発表</span></h2></div>
+        <div class="section-body"><article class="presentation-entry"><div class="entry-date">YYYY<span>MM.DD</span></div><div><span class="entry-type">ORAL / PLACEHOLDER</span><h3>学会発表のタイトルをここに記載</h3><p>［学会名・開催地］</p><p class="muted">［発表者・共同研究者］</p></div></article><article class="presentation-entry"><div class="entry-date">YYYY<span>MM.DD</span></div><div><span class="entry-type">POSTER / PLACEHOLDER</span><h3>ポスター発表のタイトルをここに記載</h3><p>［学会名・開催地］</p><p class="muted">［発表者・共同研究者］</p></div></article></div>
+      </section>
+
+      <section id="links" class="section wrap links-section" aria-labelledby="links-title">
+        <div class="section-heading"><span class="section-number">05 /</span><h2 id="links-title">Elsewhere<span>リンク</span></h2></div>
+        <div class="section-body"><p class="section-intro">研究活動の記録と、連絡先。</p><div class="links-grid"><div class="profile-link"><span>Google Scholar</span><span>未設定</span></div><div class="profile-link"><span>ORCID</span><span>未設定</span></div><div class="profile-link"><span>GitHub</span><span>未設定</span></div><div class="profile-link"><span>Email</span><span>未設定</span></div></div><p class="placeholder-note">プロフィールURL・メールアドレスを設定すると、リンクとして利用できます。</p></div>
+      </section>
+    </div>
+  </main>
+  <footer class="site-footer wrap"><span>© <span id="year">2026</span> Your Name</span><span>A little curiosity, molecule by molecule.</span><a href="#top">Back to top ↑</a></footer>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
