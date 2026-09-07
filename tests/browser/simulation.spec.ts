@@ -12,6 +12,10 @@ async function ready(page: import('@playwright/test').Page) {
   await page.goto('/');
   await expect(page.locator('.molecular-stage')).toHaveClass(/ready/, { timeout: 20000 });
   await page.waitForFunction(() => Boolean((window as any).waterSimulation));
+  // The panel drives its own render loop over this same simulation, so pause it: otherwise the
+  // page's steps interleave with the ones each test takes, and `timePs` and `readStats` drift.
+  await page.getByRole('button', { name: '計算を一時停止' }).click();
+  await expect(page.locator('#playback-status')).toHaveText('一時停止中');
 }
 
 /** Worst-case relative error of `actual` against `expected`, scaled by the expected magnitude. */

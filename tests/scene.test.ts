@@ -16,8 +16,8 @@ const bondsOf = (scene: ReturnType<typeof createScene>, vertices: number) =>
 
 test('a single central molecule renders three atoms and two rigid covalent bonds', () => {
   const box = 12.7;
-  const scene = createScene(1, box);
-  const counts = scene.update(new Float32Array(molecule(box/2,box/2,box/2)));
+  const scene = createScene(1);
+  const counts = scene.update(new Float32Array(molecule(box/2,box/2,box/2)), box);
   // Periodic images sit a whole box away, outside the spherical window.
   assert.equal(counts.atomCount, 3);
   const atoms = atomsOf(scene, counts.atomCount);
@@ -36,12 +36,12 @@ test('a single central molecule renders three atoms and two rigid covalent bonds
 
 test('hydrogen bonds appear as dashed segments from donor hydrogen to acceptor oxygen', () => {
   const box = 12.7, centre = box/2;
-  const scene = createScene(2, box);
+  const scene = createScene(2);
   // The second oxygen sits 2.8 A straight along the first donor O-H direction, with
   // its own hydrogens turned away so only one donor satisfies the criteria.
   const reach = 2.8 / OH_LENGTH;
   const counts = scene.update(new Float32Array([...molecule(centre,centre,centre),
-    ...molecule(centre+c*reach, centre+s*reach, centre)]));
+    ...molecule(centre+c*reach, centre+s*reach, centre)]), box);
   const dashed = bondsOf(scene, counts.bondVertices).filter(([from]) => from[5] === 1);
   assert.equal(dashed.length, 1);
   const [from, to] = dashed[0];
@@ -54,24 +54,51 @@ test('hydrogen bonds appear as dashed segments from donor hydrogen to acceptor o
 
 test('crossing a periodic face only relabels images, keeping the scene continuous', () => {
   const box = 12.7;
-  const scene = createScene(1, box);
-  const before = scene.update(new Float32Array(molecule(box-0.001, box/2, box/2)));
+  const scene = createScene(1);
+  const before = scene.update(new Float32Array(molecule(box-0.001, box/2, box/2)), box);
   const opacity = (count: number) => atomsOf(scene, count).reduce((sum, atom) => sum + atom[4], 0);
   const beforeOpacity = opacity(before.atomCount);
-  const after = scene.update(new Float32Array(molecule(0.001, box/2, box/2)));
+  const after = scene.update(new Float32Array(molecule(0.001, box/2, box/2)), box);
   assert.equal(after.atomCount, before.atomCount);
   assert.ok(Math.abs(opacity(after.atomCount) - beforeOpacity) < 0.01);
 });
 
 test('a dense periodic cell stays within the preallocated GPU capacity', () => {
   const box = 12.7, side = 4, count = side**3;
-  const scene = createScene(count, box);
+  const scene = createScene(count);
   const sites: number[] = [];
   for (let x = 0; x < side; x++) for (let y = 0; y < side; y++) for (let z = 0; z < side; z++) {
     sites.push(...molecule((x+.5)*box/side, (y+.5)*box/side, (z+.5)*box/side));
   }
-  const counts = scene.update(new Float32Array(sites));
+  const counts = scene.update(new Float32Array(sites), box);
   assert.ok(counts.atomCount > 3*count, 'periodic images enlarge the visible window');
   assert.ok(counts.atomCount * ATOM_STRIDE <= scene.atoms.length);
   assert.ok(counts.bondVertices * BOND_STRIDE <= scene.bonds.length);
+});
+
+test('the scene follows a box that changes with density, and counts cell hydrogen bonds', () => {
+  const box = 12.7, centre = box / 2;
+  const scene = createScene(2);
+  const reach = 2.8 / OH_LENGTH;
+  const sites = new Float32Array([...molecule(centre, centre, centre),
+    ...molecule(centre + c * reach, centre + s * reach, centre)]);
+  // Clip extent, not distance from the view centre: fixed sites sit at the middle of the
+  // original box only, so a wider box moves them off-centre while shrinking their span.
+  const span = (counts: { atomCount: number }) => {
+    let low = Infinity, high = -Infinity;
+    for (let atom = 0; atom < counts.atomCount; atom++) {
+      const x = scene.atoms[atom * ATOM_STRIDE];
+      low = Math.min(low, x);
+      high = Math.max(high, x);
+    }
+    return high - low;
+  };
+  const loose = scene.update(sites, box);
+  assert.equal(loose.hydrogenBonds, 1);
+  // `atoms` is one reused buffer, so the span has to be read before the next update.
+  const looseSpan = span(loose);
+  // A larger box scales the view down, so the same molecules land closer together.
+  const wide = scene.update(sites, box * 1.5);
+  assert.ok(span(wide) < looseSpan);
+  assert.equal(wide.hydrogenBonds, 1);
 });
