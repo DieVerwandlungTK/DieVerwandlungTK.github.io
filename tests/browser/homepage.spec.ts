@@ -96,6 +96,40 @@ test('a failed ice configuration fetch degrades to the static image', async ({ p
   await expect(page.getByLabel('密度')).toBeDisabled();
 });
 
+test('the model approximations are stated without opening any disclosure', async ({ page }) => {
+  await page.goto('/');
+  await ready(page);
+  const caveats = page.locator('.simulation-caveats');
+  await expect(caveats).toBeVisible();
+  const text = await caveats.innerText();
+  // The four approximations the design requires the page to *state*, not hide behind a summary
+  // the visitor has to find and open: reaction-field cutoff (not PME), f32 single precision, the
+  // Langevin thermostat's friction, and that cooling does not refreeze the sample.
+  expect(text).toContain('PME');
+  expect(text).toContain('f32');
+  expect(text).toContain('5 ps⁻¹');
+  expect(text).toContain('戻りません');
+  // The disclosure itself must genuinely be closed and irrelevant to the assertions above.
+  await expect(page.locator('.simulation-details')).not.toHaveJSProperty('open', true);
+  const details = page.locator('.simulation-details p').first();
+  await expect(details).toBeHidden();
+});
+
+test('the model approximations stay visible under prefers-reduced-motion and on a mobile viewport', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  await ready(page);
+  const caveats = page.locator('.simulation-caveats');
+  await expect(caveats).toBeVisible();
+  const text = await caveats.innerText();
+  expect(text).toContain('PME');
+  expect(text).toContain('f32');
+  expect(text).toContain('5 ps⁻¹');
+  expect(text).toContain('戻りません');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('small mobile screens retain navigation and avoid horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
