@@ -1,0 +1,160 @@
+# Interactive real-time water simulation
+
+Replace the precomputed trajectory background with a molecular dynamics simulation
+that runs in the visitor's browser, so visitors can heat, compress and restart the
+water themselves. The recorded OpenMM trajectory stops being display data and becomes
+the reference solution that the browser simulation is tested against.
+
+## Goal and non-goals
+
+The motivation is interactivity: a visitor moves a temperature slider and watches ice
+lose its lattice, hydrogen bonds break and reform, and thermal motion change.
+
+Cooling does not refreeze the sample. Crystal nucleation takes microseconds to
+milliseconds; a few hundred molecules over tens of picoseconds gives an amorphous
+solid instead. The reset button returns to the ice lattice and is labelled as a
+restart, not as freezing. This limitation is stated in the page caption.
+
+Reproducibility of a specific trajectory is also given up: velocities are drawn from a
+fresh random seed on every visit, so each visitor sees a different run.
+
+## Physics
+
+Rigid TIP4P-Ew water. Lennard-Jones on oxygen; charges on the two hydrogens and on
+the massless M site. Each step builds the M site from O, H, H and redistributes the
+force on M back onto them by the same geometric weights.
+
+All pairs interact (O(N^2), GPU compute) under the minimum image convention with
+cutoff `clamp(0.45 L, 6, 9)` angstrom. Electrostatics use the Onsager reaction field
+with conducting boundary (eps_RF = infinity); both Coulomb and Lennard-Jones terms are
+shifted so forces vanish continuously at the cutoff. No PME, no dispersion correction.
+
+Integration is rigid-body: centre-of-mass translation plus quaternion rotation with
+angular momentum in the principal frame, 2 fs time step, BAOAB Langevin thermostat on
+translation and rotation with 5 ps^-1 friction. The friction is stronger than the usual
+1 ps^-1 so the sample follows the temperature slider quickly.
+
+| Molecules | Box at ice density | Cutoff |
+| ---: | ---: | ---: |
+| 64 | 12.7 A | 6 A |
+| 216 (default) | 19.1 A | 8 A |
+| 512 | 25.4 A | 9 A |
+
+The density slider scales the box and all oxygen positions between 0.6 and 1.4 times
+ice density, recomputing the cutoff. Hydrogens stay whole with their oxygen.
+
+Initial states are not generated in the browser. `scripts/generate_explicit_water.py`
+exports energy-minimized, proton-disordered ice Ic configurations for 64, 216 and 512
+molecules (about 26 KB in total). Its Euler-circuit proton placement already has tests
+for the ice rules, so that algorithm is not reimplemented in TypeScript.
+
+WebGPU offers f32 only. Energy is not conserved exactly; the Langevin thermostat
+absorbs the error. The statistics buffer carries the maximum force and a non-finite
+flag, and the page restarts from the ice lattice when either indicates a blow-up.
+
+The caption states the approximations: reaction-field cutoff rather than PME, f32
+arithmetic, strong friction damping the dynamics, and no refreezing on cooling.
+
+## Modules
+
+New:
+
+- `src/water-model.ts` — TIP4P-Ew geometry, charges, Lennard-Jones parameters, masses,
+  principal moments of inertia, and the box/density/cutoff relations. Pure functions.
+- `src/simulation.wgsl` — four kernels: build M sites; forces and torques with
+  workgroup tiling; BAOAB integration of translation and quaternion rotation; reduce
+  statistics (translational and rotational kinetic temperature, maximum force,
+  non-finite flag).
+- `src/simulation.ts` — owns the GPU buffers, dispatches kernels, updates uniforms,
+  applies the steps-per-frame budget, reads statistics back asynchronously, and
+  handles reset, molecule-count changes and density changes.
+- `src/initial-state.ts` — loads the packed ice configuration for a molecule count,
+  scales it to the requested density, and assigns Maxwell-Boltzmann velocities and
+  angular momenta from a seeded generator with zero total momentum.
+
+Reused unchanged: `src/scene.ts` (periodic images, observation window, hydrogen-bond
+geometry, projection), `findHydrogenBonds` / `periodicMolecules` / `molecularOpacity`
+in `src/water-geometry.ts`, `src/background.ts`, and both render shaders. Their unit
+tests keep their meaning.
+
+Removed: `src/trajectory.ts` and `tests/trajectory.test.ts`; `interpolateHydrogens`
+(and its quaternion helpers and test), which existed only to interpolate between
+recorded frames; `public/data/water.json` and `water.bin`. The OpenMM generator and
+its report stay as the reference solution, with its outputs moved to `reference/` so
+they are no longer served — `dist` loses 4.6 MB.
+
+## Data flow per animation frame
+
+1. JavaScript updates uniforms: target temperature, box length, cutoff, random counter.
+2. It dispatches the M-site, force and integration kernels `stepsPerFrame` times, and
+   the statistics reduction every few frames.
+3. It copies positions into a staging buffer, maps it asynchronously, and passes the
+   O, H, H sites to `scene.update` and then `background.render`.
+
+The readback is 18 KB at 512 molecules. Rendering lags the simulation by about one
+frame, which is not perceptible. Keeping the hydrogen-bond analysis in tested
+JavaScript is the reason for reading back at all; the compute shaders stay limited to
+physics. If JavaScript becomes the bottleneck at 512 molecules, scene assembly moves
+to a compute shader afterwards — measured first, not assumed.
+
+## Screen and controls
+
+The timeline scrubber is removed; a live simulation has no seekable timeline.
+
+- Temperature: 150-500 K slider, showing the set point and the measured kinetic
+  temperature separately.
+- Density: slider showing the box length in angstrom and the ratio to ice density.
+- Molecules: 64 / 216 / 512, defaulting to 216, and to 64 on viewports of 720 px or
+  less.
+- Pause and resume; reset, which restarts from ice Ic.
+- Speed: steps per frame, with the measured picoseconds per second displayed.
+- Readouts: elapsed simulation time in picoseconds and the hydrogen-bond count in the
+  cell.
+- Reduced-motion settings show the initial ice configuration, paused, without stepping.
+- Without WebGPU the static SVG remains the fallback, regenerated from the 216-molecule
+  initial configuration.
+
+## Verification
+
+The physics is validated against a reference solution rather than by appearance, and
+is not implemented twice.
+
+Offline (Python):
+
+- `scripts/reference_forces.py` computes forces, torques and potential energy for the
+  reaction-field TIP4P-Ew model on a fixed 64-molecule configuration and writes
+  `tests/fixtures/reference-forces-64.json`.
+- `scripts/test_reference_forces.py` checks those forces against central-difference
+  derivatives of the potential (relative error below 1e-5), including the
+  redistribution of the M-site force. This is the foundation everything else rests on.
+- The 300 K oxygen-oxygen radial distribution function from the existing OpenMM
+  reference trajectory is exported into the same fixture directory.
+
+Node unit tests (no GPU):
+
+- `water-model.ts`: moments of inertia, M-site construction, and the
+  density/box/cutoff relations.
+- `initial-state.ts`: loading each molecule count, rigid geometry, density scaling,
+  zero total momentum, kinetic energy matching the requested temperature, and
+  reproducibility for a fixed seed.
+
+Browser tests (Playwright with WebGPU):
+
+1. Forces from one GPU evaluation of the fixture configuration match the Python
+   reference within 1e-3 relative error.
+2. After 5,000 steps every O-H length is 0.9572 +/- 0.001 A and every H-O-H angle is
+   104.52 +/- 0.05 degrees.
+3. At a 300 K set point over 10 ps the mean kinetic temperature is within 25 K.
+4. Total translational momentum stays near zero.
+5. At 500 K the tetrahedral order parameter falls while at 180 K it is retained over
+   the same interval, showing melting happens as physics.
+6. The first O-O peak at 300 K agrees with the OpenMM reference within 0.15 A.
+7. 512 molecules stepped continuously for 30 s never raise the non-finite flag.
+8. Pause, reset, molecule-count changes and density changes raise no errors and leave
+   rigid geometry intact.
+9. Steps per second at 216 molecules stays above a lenient threshold. This runs
+   locally only; CI runs `npm test` and the build, not the browser suite.
+
+Acceptance: all of the above pass, `npm test`, `npm run build` and
+`npm run test:browser` are green, and screenshots of the published site show the
+180 K lattice and the melted 500 K sample.
