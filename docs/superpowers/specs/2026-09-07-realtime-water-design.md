@@ -29,7 +29,9 @@ of the same rigid body, so its force contributes to both sums directly. This rem
 the redistribution step and its test.
 
 All pairs interact (O(N^2), GPU compute) under the minimum image convention with
-cutoff `clamp(0.45 L, 6, 9)` angstrom. Electrostatics use the Onsager reaction field
+cutoff `min(9, 0.49 L)` angstrom. There is deliberately no lower clamp: a 6 A floor would
+exceed half the box for 64 molecules compressed to 1.4 times ice density (box 11.35 A) and
+break the minimum image convention. Small samples therefore get a short cutoff. Electrostatics use the Onsager reaction field
 with conducting boundary (eps_RF = infinity); both Coulomb and Lennard-Jones terms are
 shifted so forces vanish continuously at the cutoff (the Lennard-Jones energy shift is
 `- (r - rc) U'(rc)`, i.e. plus `(r - rc)` times the force at the cutoff). No PME, no
@@ -42,8 +44,8 @@ translation and rotation with 5 ps^-1 friction. The friction is stronger than th
 
 | Molecules | Box at ice density | Cutoff |
 | ---: | ---: | ---: |
-| 64 | 12.7 A | 6 A |
-| 216 (default) | 19.1 A | 8 A |
+| 64 | 12.7 A | 6.22 A |
+| 216 (default) | 19.05 A | 9 A |
 | 512 | 25.4 A | 9 A |
 
 The density slider scales the box and all oxygen positions between 0.6 and 1.4 times
