@@ -15,7 +15,7 @@ test('heating the sample raises the measured temperature and advances simulation
   await page.goto('/');
   await ready(page);
   await page.screenshot({ path: 'test-results/cold.png' });
-  await page.getByLabel('温度').fill('500');
+  await page.getByRole('slider', { name: '温度', exact: true }).fill('500');
   await expect(page.locator('#temperature')).toHaveText('500');
   await expect.poll(async () => Number((await page.locator('#kinetic-temperature').textContent())?.replace(/\D/g, '')),
     { timeout: 30000 }).toBeGreaterThan(400);
@@ -43,7 +43,7 @@ test('molecule count and density change the cell and stay stable', async ({ page
   await ready(page);
   await page.getByLabel('分子数').selectOption('512');
   await expect(page.locator('#box-length')).toHaveText('25.4 Å');
-  await page.getByLabel('密度').fill('140');
+  await page.getByRole('slider', { name: '密度', exact: true }).fill('140');
   await expect(page.locator('#density-ratio')).toHaveText('1.40');
   await expect.poll(async () => Number((await page.locator('#box-length').textContent())?.replace(/[^\d.]/g, '')))
     .toBeLessThan(25.4);
@@ -80,7 +80,7 @@ test('no WebGPU shows a real static molecule image and readable sections', async
   await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', { value: undefined }));
   await page.goto('/');
   await expect(page.locator('#playback-status')).toHaveText('静止画を表示中');
-  await expect(page.getByLabel('温度')).toBeDisabled();
+  await expect(page.getByRole('slider', { name: '温度', exact: true })).toBeDisabled();
   expect(await page.locator('#static-molecules').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
   await page.screenshot({ path: 'test-results/static-fallback.png' });
   for (const name of ['About', 'Research', 'Publications', 'Presentations', 'Elsewhere']) {
@@ -93,7 +93,7 @@ test('a failed ice configuration fetch degrades to the static image', async ({ p
   await page.goto('/');
   await expect(page.locator('#playback-status')).toHaveText('静止画を表示中');
   await expect(page.locator('.molecular-stage')).not.toHaveClass(/ready/);
-  await expect(page.getByLabel('密度')).toBeDisabled();
+  await expect(page.getByRole('slider', { name: '密度', exact: true })).toBeDisabled();
 });
 
 test('the model approximations are stated without opening any disclosure', async ({ page }) => {
