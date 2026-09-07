@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { BOLTZMANN, FORCE_TO_ACCELERATION, MOLECULE_MASS, OH_LENGTH, principalMoments } from '../../src/water-model';
+import { needsRestart } from '../../src/simulation-health';
 
 interface Fixture {
   box: number; cutoff: number; molecules: number;
@@ -195,4 +196,31 @@ test('the reduction kernel reports the same temperatures as the raw state', asyn
   expect(result.stats.nonFinite).toBe(false);
   expect(result.stats.maximumForce).toBeGreaterThan(0);
   expect(result.stats.maximumForce).toBeLessThan(50000);
+});
+
+test('the divergence guard survives NaN saturation and recovers after a restart', async ({ page }) => {
+  test.setTimeout(60000);
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(64);
+    // A density this extreme forces a genuine blow-up: the trajectory explodes within about
+    // two steps and every molecule's velocity, angular momentum and force saturate to NaN.
+    // Stepping to 20 is well past the ~3 steps that took to saturate when this test was written.
+    simulation.setDensity(15);
+    simulation.step(20);
+    const diverged = await simulation.readStats();
+    // reset() reloads the ice lattice but keeps whatever density was last set, so the extreme
+    // density from above survives it; setDensity(1) afterwards is what actually restores a
+    // sane box.
+    simulation.reset();
+    simulation.setDensity(1);
+    simulation.step(50);
+    const healthy = await simulation.readStats();
+    return { diverged, healthy };
+  });
+  expect(result.diverged.nonFinite).toBe(true);
+  expect(needsRestart(result.diverged)).toBe(true);
+  expect(result.healthy.nonFinite).toBe(false);
+  expect(needsRestart(result.healthy)).toBe(false);
 });

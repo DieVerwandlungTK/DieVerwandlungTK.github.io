@@ -261,6 +261,15 @@ var<workgroup> laneRotational: array<f32, REDUCTION_LANES>;
 var<workgroup> laneForce: array<f32, REDUCTION_LANES>;
 var<workgroup> laneBroken: array<f32, REDUCTION_LANES>;
 
+/**
+ * True for NaN and for infinity. Bit inspection rather than `x != x` or a magnitude
+ * comparison: some WebGPU backends compile with fast-math semantics where NaN
+ * comparisons are false and max() discards a NaN operand, which left this guard dead.
+ */
+fn isNonFinite(value: f32) -> bool {
+  return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;
+}
+
 /** One workgroup reduces the whole sample; dispatch it with a single group. */
 @compute @workgroup_size(256)
 fn reduce(@builtin(local_invocation_id) local: vec3u) {
@@ -276,8 +285,13 @@ fn reduce(@builtin(local_invocation_id) local: vec3u) {
     translational += MOLECULE_MASS * dot(velocity, velocity);
     rotational += dot(angular * angular / INERTIA, vec3f(1.0));
     peak = max(peak, length(force));
-    let finite = dot(velocity, velocity) + dot(angular, angular) + dot(force, force);
-    if (finite != finite || finite > 1e30) { broken = 1.0; }
+    // Checked component-by-component, never through max() or a float comparison: both are
+    // unreliable in the presence of NaN on backends that assume fast-math semantics.
+    if (isNonFinite(velocity.x) || isNonFinite(velocity.y) || isNonFinite(velocity.z) ||
+        isNonFinite(angular.x) || isNonFinite(angular.y) || isNonFinite(angular.z) ||
+        isNonFinite(force.x) || isNonFinite(force.y) || isNonFinite(force.z)) {
+      broken = 1.0;
+    }
   }
   laneTranslational[lane] = translational;
   laneRotational[lane] = rotational;
