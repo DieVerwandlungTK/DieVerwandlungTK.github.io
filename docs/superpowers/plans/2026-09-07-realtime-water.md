@@ -26,6 +26,8 @@
 - Every new TypeScript file passes `npx tsc --noEmit`. Node tests live in `tests/*.test.ts` (run by `npm test`); browser tests in `tests/browser/*.spec.ts` (run by `npm run test:browser` after `npm run build`).
 - Japanese is the language of all visitor-facing copy; code, comments, commit messages and documents in `docs/` are English.
 - Never commit a red test. Each task ends with its tests passing and a commit.
+- Browser specs run in node, so they import constants from `src/water-model.ts` rather than restating them; only code inside `page.evaluate` needs values passed in as arguments.
+- Tests that step the simulation for seconds call `test.setTimeout(...)` explicitly, since Playwright's default is 30 s.
 
 ## File Structure
 
@@ -1018,6 +1020,7 @@ Create `tests/browser/simulation.spec.ts` with the force comparison only (later 
 ```typescript
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { BOLTZMANN, FORCE_TO_ACCELERATION, MOLECULE_MASS, OH_LENGTH, principalMoments } from '../../src/water-model';
 
 interface Fixture {
   box: number; cutoff: number; molecules: number;
@@ -1432,8 +1435,7 @@ Append to `tests/browser/simulation.spec.ts`:
 ```typescript
 /** Kinetic temperatures computed from the raw state, the way the reduction kernel will. */
 function temperatures(state: number[], molecules: number) {
-  const MOLECULE_MASS = 18.015324, BOLTZMANN = 0.0083144626, FORCE_TO_ACCELERATION = 100;
-  const inertia = [1.1550544, 0.6145410, 1.7695954];
+  const inertia = principalMoments();
   let translational = 0, rotational = 0;
   const momentum = [0, 0, 0];
   for (let molecule = 0; molecule < molecules; molecule++) {
@@ -1450,8 +1452,9 @@ function temperatures(state: number[], molecules: number) {
 }
 
 test('molecules stay rigid after five thousand steps', async ({ page }) => {
+  test.setTimeout(120000);
   await ready(page);
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async LENGTH => {
     const simulation = (window as any).waterSimulation;
     simulation.setMolecules(64);
     simulation.setTemperature(300);
@@ -1462,18 +1465,19 @@ test('molecules stay rigid after five thousand steps', async ({ page }) => {
       const site = (index: number) => [0, 1, 2].map(axis => sites[molecule * 12 + index * 4 + axis]);
       const oxygen = site(0);
       const bonds = [1, 2].map(index => site(index).map((value, axis) => value - oxygen[axis]));
-      for (const bond of bonds) worstBond = Math.max(worstBond, Math.abs(Math.hypot(...bond) - 0.9572));
-      const cosine = bonds[0].reduce((sum, value, axis) => sum + value * bonds[1][axis], 0) / 0.9572 ** 2;
+      for (const bond of bonds) worstBond = Math.max(worstBond, Math.abs(Math.hypot(...bond) - LENGTH));
+      const cosine = bonds[0].reduce((sum, value, axis) => sum + value * bonds[1][axis], 0) / LENGTH ** 2;
       worstAngle = Math.max(worstAngle, Math.abs(Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI - 104.52));
     }
     return { worstBond, worstAngle, timePs: simulation.timePs };
-  });
+  }, OH_LENGTH);
   expect(result.timePs).toBeCloseTo(10, 6);
   expect(result.worstBond).toBeLessThan(0.001);
   expect(result.worstAngle).toBeLessThan(0.05);
 });
 
 test('the thermostat brings the sample to its set point and holds it', async ({ page }) => {
+  test.setTimeout(180000);
   await ready(page);
   const samples = await page.evaluate(async () => {
     const simulation = (window as any).waterSimulation;
@@ -1509,7 +1513,7 @@ test('the sample never acquires a net drift', async ({ page }) => {
   const { momentum, translational } = temperatures(drift.state, drift.molecules);
   // A Langevin thermostat does not conserve momentum exactly; it must stay small next
   // to the thermal momentum of a single molecule, sqrt(m kB T / 100) in amu A/ps.
-  const thermal = Math.sqrt(18.015324 * 0.0083144626 * translational * 100);
+  const thermal = Math.sqrt(MOLECULE_MASS * BOLTZMANN * translational * FORCE_TO_ACCELERATION);
   for (const axis of [0, 1, 2]) {
     expect(Math.abs(momentum[axis])).toBeLessThan(3 * thermal * Math.sqrt(drift.molecules));
   }
@@ -1891,6 +1895,7 @@ const ready = async (page: import('@playwright/test').Page) => {
 };
 
 test('heating the sample raises the measured temperature and advances simulation time', async ({ page }) => {
+  test.setTimeout(120000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -1920,6 +1925,7 @@ test('pausing holds the simulation and reset returns to the ice lattice', async 
 });
 
 test('molecule count and density change the cell and stay stable', async ({ page }) => {
+  test.setTimeout(90000);
   await page.goto('/');
   await ready(page);
   await page.getByLabel('分子数').selectOption('512');
@@ -1939,7 +1945,7 @@ test('molecule count and density change the cell and stay stable', async ({ page
       const oxygen = [0, 1, 2].map(axis => sites[molecule * 12 + axis]);
       for (const hydrogen of [1, 2]) {
         const bond = [0, 1, 2].map(axis => sites[molecule * 12 + hydrogen * 4 + axis] - oxygen[axis]);
-        worst = Math.max(worst, Math.abs(Math.hypot(...bond) - 0.9572));
+        worst = Math.max(worst, Math.abs(Math.hypot(...bond) - 0.9572));   // OH_LENGTH
       }
     }
     return worst;
@@ -2645,6 +2651,7 @@ function tetrahedralOrder(sites: number[], molecules: number, box: number): numb
 }
 
 test('heating destroys the tetrahedral lattice while cold holds it', async ({ page }) => {
+  test.setTimeout(300000);
   await ready(page);
   const run = (kelvin: number) => page.evaluate(async temperature => {
     const simulation = (window as any).waterSimulation;
@@ -2665,6 +2672,7 @@ test('heating destroys the tetrahedral lattice while cold holds it', async ({ pa
 });
 
 test('the first oxygen shell agrees with the OpenMM reference', async ({ page }) => {
+  test.setTimeout(300000);
   const reference = JSON.parse(await readFile('tests/fixtures/reference-rdf-300k.json', 'utf8'));
   await ready(page);
   const measured = await page.evaluate(async () => {
@@ -2727,6 +2735,7 @@ test('the largest sample runs for half a minute without diverging', async ({ pag
 });
 
 test('the default sample sustains a usable step rate on this machine', async ({ page }) => {
+  test.setTimeout(60000);
   await ready(page);
   const rate = await page.evaluate(async () => {
     const simulation = (window as any).waterSimulation;
