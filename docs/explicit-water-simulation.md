@@ -1,10 +1,15 @@
-# Explicit water heating sample
+# Explicit water heating sample: reference-solution report
 
-The homepage plays an offline molecular-dynamics trajectory of 64 rigid TIP4P-Ew
-water molecules in a 12.7 Å periodic cube. Oxygen and the two hydrogens are drawn;
-the massless fourth charge site participates in the simulation but is not drawn.
-Intramolecular O–H bonds are constrained and never dissociate. Dashed hydrogen
-bonds are a geometric analysis, not additional spring forces.
+The homepage no longer plays this trajectory. It runs a live WebGPU simulation of
+rigid TIP4P-Ew water in the browser instead (see "Browser model" below). This
+document is now a report on the offline OpenMM reference solution: a
+molecular-dynamics heating trajectory of 64 rigid TIP4P-Ew water molecules in a
+12.7 Å periodic cube, kept in `reference/` to validate the browser simulation's
+force field and integrator. Oxygen and the two hydrogens are drawn in both the
+reference trajectory and the live simulation; the massless fourth charge site
+participates in the physics but is not drawn. Intramolecular O–H bonds are
+constrained and never dissociate. Dashed hydrogen bonds are a geometric analysis,
+not additional spring forces.
 
 ## Reproduce
 
@@ -49,28 +54,58 @@ chemical reaction rates or hydrogen-bond lifetimes.
 
 ## Data contract
 
-`public/data/water.json` has version 2, 64 `particles` (molecules), box length in Å,
-`atomOrder: ["O", "H", "H"]`, and frame metadata. `water.bin` is little-endian
-float32, ordered frame → molecule → atom → xyz (2001×64×3×3 values; 4,610,304 bytes).
-Oxygen is wrapped into [0,12.7); hydrogens are whole relative to their oxygen and
-can lie outside the box. Periodic interpolation must use the minimum image for
-oxygen displacements and interpolate local O–H directions rather than wrapping
-hydrogen independently. No virtual-site coordinates are exported.
+The browser simulation loads its initial configuration from
+`public/data/ice-<N>.bin`, one file per molecule count `N` in `{64, 216, 512}`. Each
+file is little-endian float32, molecule-major, three sites per molecule in the order
+O, H1, H2, xyz in Å (`N × 3 × 3` values; `N × 36` bytes). Oxygen is wrapped into
+`[0, box)` for the corresponding ice-Ic box (`6.35 Å × cells`, `cells = (N/8)^(1/3)`);
+hydrogens are whole relative to their oxygen and may lie just outside the box. No
+virtual-site (M-site) coordinates are stored; `src/initial-state.ts` derives the
+charge site, velocities and rigid-body state from these three sites at load time.
 
-The generator checks all coordinates, rigid geometry, periodic interframe
-displacements, thermal change, structural change and hydrogen-bond turnover before
-replacing the committed sample. The test also verifies the initial ice rules.
+The generator (`scripts/generate_explicit_water.py`) checks all coordinates, rigid
+geometry, periodic interframe displacements, thermal change, structural change and
+hydrogen-bond turnover before replacing the committed reference sample and the
+committed ice files. The test also verifies the initial ice rules.
+
+## Browser model
+
+`src/simulation.wgsl` is a from-scratch rigid TIP4P-Ew integrator that runs entirely
+on the GPU. It differs from the OpenMM reference protocol above in the approximations
+it makes to run in real time:
+
+- Electrostatics use an Onsager reaction field with a conducting boundary
+  (`ε_rf = ∞`) instead of Ewald summation (PME), cut off at `min(9, 0.49 × box)` Å —
+  never more than 9 Å, and never past half the box so the minimum-image convention
+  holds.
+- Arithmetic is 32-bit float throughout, so energy is not conserved exactly the way
+  a double-precision reference integrator's is.
+- Integration is 2 fs BAOAB Langevin at 5 ps⁻¹ friction; that friction measurably
+  damps the dynamics, it is not a light thermostat coupling.
+- Cooling does not refreeze the sample. Crystal nucleation is far beyond what a
+  system of a few hundred molecules can show on a real-time timescale, so cooling
+  produces an amorphous solid, not a return to ice. The reset control restarts the
+  sample from the ice-Ic initial configuration; it does not freeze anything.
+
+The WGSL forces are tested against `scripts/reference_forces.py`, an independent,
+loop-based (not vectorized) Python reference implementation of the same reaction-field
+TIP4P-Ew force law, so the two must agree to floating-point precision on the same
+input configuration. The OpenMM trajectory in `reference/` is not used by the
+browser at all; it is a separate, independent validation of the physics.
 
 ## Display
 
 `src/scene.ts` replicates each molecule into the 27 neighbouring periodic cells and
 keeps only whole molecules inside a spherical window of 0.66 box lengths, fading them
-to zero opacity before culling; about 79 molecule images are visible. Oxygen is drawn
-at 0.44 Å and hydrogen at 0.26 Å in a ball-and-stick style, solid lines for the
-constrained O-H bonds and dashed lines for geometric hydrogen bonds. `src/main.ts`
-plays the whole 40 ps trajectory in about 30 seconds at 1x, with 0.5x, 2x and 4x
-options; the readout shows the thermostat set point and the simulation time. No
-velocity is scaled with temperature: thermal motion is whatever the trajectory holds.
+to zero opacity before culling. Oxygen is drawn at 0.44 Å and hydrogen at 0.26 Å in a
+ball-and-stick style, solid lines for the constrained O-H bonds and dashed lines for
+geometric hydrogen bonds. `src/main.ts` runs the live simulation continuously rather
+than playing back a fixed-length recording; the visitor controls temperature
+(150–500 K), density (60–140% of ice density), molecule count (64, 216 or 512) and
+computation speed (0.5x, 1x, 2x or 4x steps per animation frame), plus
+play/pause and a reset to the ice-Ic initial state. The readout shows the
+thermostat set point alongside the measured kinetic temperature and the simulation
+time; the two are not the same quantity.
 
 ## Sources
 

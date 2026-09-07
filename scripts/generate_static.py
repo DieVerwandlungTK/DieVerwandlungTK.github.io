@@ -3,7 +3,6 @@
 Mirrors the projection, observation window and bond criteria of src/scene.ts so the
 static image matches the first rendered frame.
 """
-import json
 import math
 from pathlib import Path
 
@@ -16,11 +15,13 @@ PIXELS = 270
 OO_MAX, OHA_MIN = 3.5, 150.0
 
 root = Path(__file__).resolve().parents[1]
-meta = json.loads((root / 'public/data/water.json').read_text())
-molecules, box = meta['particles'], meta['box']
+MOLECULES = 216
+CELLS = 3
+box = 6.35 * CELLS
+molecules = MOLECULES
+raw = np.fromfile(root / f'public/data/ice-{MOLECULES}.bin', dtype='<f4', count=MOLECULES * 9)
+sites = raw.reshape(MOLECULES, 3, 3).astype(float)
 scale = 1 / (WINDOW * box)
-raw = np.fromfile(root / 'public/data/water.bin', dtype='<f4', count=molecules * 9).reshape(molecules, 3, 3)
-sites = raw.astype(float)
 
 
 def project(point):
