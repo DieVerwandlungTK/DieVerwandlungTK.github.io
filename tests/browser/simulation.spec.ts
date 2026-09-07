@@ -263,6 +263,7 @@ test('heating destroys the tetrahedral lattice while cold holds it', async ({ pa
   const run = (kelvin: number) => page.evaluate(async temperature => {
     const simulation = (window as any).waterSimulation;
     simulation.setMolecules(216);
+    simulation.setDensity(1);
     simulation.reset();
     simulation.setTemperature(temperature);
     for (let batch = 0; batch < 100; batch++) simulation.step(100);   // 20 ps
@@ -278,13 +279,49 @@ test('heating destroys the tetrahedral lattice while cold holds it', async ({ pa
   expect(coldOrder - hotOrder).toBeGreaterThan(0.2);
 });
 
-test('the first oxygen shell agrees with the OpenMM reference', async ({ page }) => {
+/**
+ * Bins raw oxygen-oxygen distances across `frames` into the O-O radial distribution function,
+ * with the same bin width, range and normalisation `scripts/generate_reference_rdf.py` uses, so
+ * the result is directly comparable to a fixture it produced.
+ */
+function radialDistribution(frames: number[][], molecules: number, box: number) {
+  const width = 0.05, start = 2, bins = new Array(80).fill(0);
+  for (const sites of frames) {
+    for (let i = 0; i < molecules; i++) for (let j = i + 1; j < molecules; j++) {
+      const distance = Math.hypot(...[0, 1, 2].map(axis => {
+        const raw = sites[j * 12 + axis] - sites[i * 12 + axis];
+        return raw - box * Math.round(raw / box);
+      }));
+      const bin = Math.floor((distance - start) / width);
+      if (bin >= 0 && bin < bins.length) bins[bin]++;
+    }
+  }
+  const density = molecules / box ** 3;
+  const gr = bins.map((count, index) => {
+    const inner = start + index * width, outer = inner + width;
+    const shell = 4 / 3 * Math.PI * (outer ** 3 - inner ** 3);
+    return count / (shell * density * molecules / 2 * frames.length);
+  });
+  const near = gr.slice(0, Math.floor((4 - start) / width));
+  const peakIndex = near.indexOf(Math.max(...near));
+  const peak = start + width * (peakIndex + 0.5);
+  // First minimum: the smallest gr value between the first peak and 4 A, matching how the
+  // reference fixture's own `firstMinimum` is derived. This is the diagnostic that separates
+  // crystalline order (near 0.03) from a disordered fluid (near 0.85-0.95) -- the first-peak
+  // *position* cannot, since both ice and liquid water put it near 2.7-2.8 A.
+  const tail = near.slice(peakIndex);
+  const firstMinimum = Math.min(...tail);
+  return { gr, peak, peakHeight: near[peakIndex], firstMinimum };
+}
+
+test('the first oxygen shell agrees with the OpenMM reference for the same superheated ice', async ({ page }) => {
   test.setTimeout(300000);
-  const reference = JSON.parse(await readFile('tests/fixtures/reference-rdf-300k.json', 'utf8'));
+  const reference = JSON.parse(await readFile('tests/fixtures/reference-rdf-ice-300k.json', 'utf8'));
   await ready(page);
   const measured = await page.evaluate(async () => {
     const simulation = (window as any).waterSimulation;
     simulation.setMolecules(216);
+    simulation.setDensity(1);
     simulation.reset();
     simulation.setTemperature(300);
     for (let batch = 0; batch < 150; batch++) simulation.step(100);   // 30 ps of equilibration
@@ -295,27 +332,48 @@ test('the first oxygen shell agrees with the OpenMM reference', async ({ page })
     }
     return { frames, molecules: simulation.molecules, box: simulation.box };
   });
-  const width = 0.05, start = 2, bins = new Array(80).fill(0);
-  for (const sites of measured.frames) {
-    for (let i = 0; i < measured.molecules; i++) for (let j = i + 1; j < measured.molecules; j++) {
-      const distance = Math.hypot(...[0, 1, 2].map(axis => {
-        const raw = sites[j * 12 + axis] - sites[i * 12 + axis];
-        return raw - measured.box * Math.round(raw / measured.box);
-      }));
-      const bin = Math.floor((distance - start) / width);
-      if (bin >= 0 && bin < bins.length) bins[bin]++;
-    }
-  }
-  const density = measured.molecules / measured.box ** 3;
-  const gr = bins.map((count, index) => {
-    const inner = start + index * width, outer = inner + width;
-    const shell = 4 / 3 * Math.PI * (outer ** 3 - inner ** 3);
-    return count / (shell * density * measured.molecules / 2 * measured.frames.length);
-  });
-  const near = gr.slice(0, Math.floor((4 - start) / width));
-  const peak = start + width * (near.indexOf(Math.max(...near)) + 0.5);
+  const { peak, peakHeight, firstMinimum } =
+    radialDistribution(measured.frames, measured.molecules, measured.box);
   expect(Math.abs(peak - reference.firstPeak)).toBeLessThan(0.15);
-  expect(Math.max(...near)).toBeGreaterThan(1.8);
+  expect(peakHeight).toBeGreaterThan(1.8);
+  // The 300 K sample stays crystalline (ice, not liquid water -- see the fixture's docstring
+  // reference), so its first minimum sits close to zero (reference 0.026) rather than the
+  // 0.8-0.9 a disordered fluid shows. A margin of 0.15 stays two-plus reference-magnitudes away
+  // from any melted reading while comfortably covering run-to-run sampling noise: the reference
+  // itself moved from 0.026 to 0.031 across two otherwise-identical OpenMM regenerations on this
+  // machine (see the report), a spread of 0.005, thirty times smaller than this margin.
+  expect(Math.abs(firstMinimum - reference.firstMinimum)).toBeLessThan(0.15);
+});
+
+test('the first oxygen shell agrees with the OpenMM reference for the same disordered fluid at 520 K', async ({ page }) => {
+  test.setTimeout(300000);
+  const reference = JSON.parse(await readFile('tests/fixtures/reference-rdf-fluid-520k.json', 'utf8'));
+  await ready(page);
+  const measured = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(216);
+    simulation.setDensity(1);
+    simulation.reset();
+    simulation.setTemperature(520);
+    // The melting test reaches a tetrahedral order of 0.48 after 20 ps at 520 K; equilibrate for
+    // 30 ps here (150 batches of 100 steps) so the sample is well past that and settled before
+    // sampling its structure, then sample 20 frames over 10 ps exactly as the ice-state test does.
+    for (let batch = 0; batch < 150; batch++) simulation.step(100);   // 30 ps of equilibration
+    const frames: number[][] = [];
+    for (let sample = 0; sample < 20; sample++) {
+      simulation.step(250);
+      frames.push(Array.from(await simulation.readSites() as Float32Array));
+    }
+    return { frames, molecules: simulation.molecules, box: simulation.box };
+  });
+  const { peak, firstMinimum } = radialDistribution(measured.frames, measured.molecules, measured.box);
+  expect(Math.abs(peak - reference.firstPeak)).toBeLessThan(0.15);
+  // The reference's first minimum (0.934) sits in the shallow, broad dip typical of a fluid at
+  // this temperature and box size -- nowhere near ice's 0.03. A margin of 0.3 stays far above
+  // the noise floor a small, high-temperature, 64-molecule OpenMM sample and a 216-molecule
+  // browser sample can plausibly disagree by, while still failing hard (by more than an order of
+  // magnitude) if the browser sample were actually still crystalline.
+  expect(Math.abs(firstMinimum - reference.firstMinimum)).toBeLessThan(0.3);
 });
 
 test('the largest sample runs for half a minute without diverging', async ({ page }) => {

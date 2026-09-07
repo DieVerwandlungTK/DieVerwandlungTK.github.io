@@ -212,13 +212,14 @@ fn freeRotation(start: vec4f, momentum: vec3f, duration: f32) -> Rotation {
 /**
  * One BAOAB step, written as B A O A with the trailing half kick folded into the leading one of
  * the next step. Both of those halves use the same force -- the one evaluated at the
- * configuration this step ends on -- so together they are a *full* dt kick, and that is why the
- * kick below carries `dt` and not `0.5 * dt` even though the two drifts each carry `0.5 * dt`.
- * Halving it instead makes every molecule feel half the force it should while the thermostat
- * still injects noise for the full set point, which samples the potential at twice the set
- * temperature: ice then melts at 180 K and the configurational energy sits ~13 kJ/mol per
- * molecule above the OpenMM reference. tests/browser/simulation.spec.ts pins that down through
- * the tetrahedral order and the first oxygen shell.
+ * configuration this step starts from, which is where the previous step ended -- so together
+ * they are a *full* dt kick, and that is why the kick below carries `dt` and not `0.5 * dt` even
+ * though the two drifts each carry `0.5 * dt`. Halving it instead makes every molecule feel half
+ * the force it should while the thermostat still injects noise for the full set point, which
+ * samples the potential at twice the set temperature: ice then melts at 180 K, and the
+ * configurational energy sits ~3.2 kJ/mol per molecule above the OpenMM reference at 100 K,
+ * ~13 kJ/mol at 180 K and ~20.5 kJ/mol at 300 K. tests/browser/simulation.spec.ts pins that down
+ * through the tetrahedral order and the first oxygen shell.
  */
 @compute @workgroup_size(64)
 fn integrate(@builtin(global_invocation_id) id: vec3u) {

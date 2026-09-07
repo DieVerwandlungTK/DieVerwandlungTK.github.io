@@ -93,6 +93,20 @@ TIP4P-Ew force law, so the two must agree to floating-point precision on the sam
 input configuration. The OpenMM trajectory in `reference/` is not used by the
 browser at all; it is a separate, independent validation of the physics.
 
+Structure, as opposed to instantaneous forces, is checked against two more fixtures:
+`tests/fixtures/reference-rdf-ice-300k.json` and `tests/fixtures/reference-rdf-fluid-520k.json`,
+each an O-O radial distribution function from the same TIP4P-Ew/PME OpenMM protocol
+(`scripts/generate_reference_rdf.py`), at 300 K and 520 K respectively.
+`tests/browser/simulation.spec.ts` compares the browser's own O-O radial distribution
+function against each. The 300 K state is superheated crystalline ice Ic, not liquid
+water: its first peak (~4.4 at ~2.7 Å) and, more diagnostically, its first minimum
+(~0.03) are the ice signature, not liquid water's ~2.8 peak height and ~0.85 first
+minimum at essentially the same peak position — TIP4P-Ew ice Ic at ice density with no
+free surface simply does not melt within tens of picoseconds at 300 K, in the browser
+or in OpenMM. The 520 K state is a genuinely disordered fluid (first minimum ~0.9).
+**No equilibrium liquid-water structure at ambient temperature has been validated**;
+only these two states' structure, and the force-level comparison above, have been.
+
 ## Display
 
 `src/scene.ts` replicates each molecule into the 27 neighbouring periodic cells and

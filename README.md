@@ -105,6 +105,8 @@ uv pip install --python .venv/bin/python -r scripts/requirements.txt
 .venv/bin/python scripts/generate_explicit_water.py     # 氷の初期配置と検証用軌跡
 .venv/bin/python scripts/reference_forces.py            # GPUテスト用の力のフィクスチャ
 .venv/bin/python scripts/generate_static.py             # 静止画フォールバック
+.venv/bin/python scripts/generate_reference_rdf.py ice     # 300 K・過熱氷Icの参照RDF
+.venv/bin/python scripts/generate_reference_rdf.py fluid   # 520 K・流体の参照RDF
 .venv/bin/python -m unittest discover -s scripts -p 'test_*.py'
 ```
 
@@ -116,4 +118,8 @@ uv pip install --python .venv/bin/python -r scripts/requirements.txt
 表示されません**。急速加熱・小規模・定積の参照計算で、ブラウザ内シミュレーションの
 力場・積分を検証するために残しています（`scripts/test_explicit_water.py`、
 `scripts/reference_forces.py`）。平衡融点や実験条件の再現を検証した研究データでは
-ありません。
+ありません。力は `scripts/reference_forces.py` と、構造は `tests/fixtures/reference-rdf-ice-300k.json`
+（300 K・過熱された結晶氷Ic）と `tests/fixtures/reference-rdf-fluid-520k.json`
+（520 K・乱れた流体）の2状態と、それぞれ比較検証していますが、**常温での平衡液体水の
+構造は検証していません**——このタイムスケールでは300 Kの試料はブラウザでもOpenMMでも
+融解しないためです。
