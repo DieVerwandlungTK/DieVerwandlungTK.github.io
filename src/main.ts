@@ -2,6 +2,8 @@ import './style.css';
 import { init, type Gpu } from 'vgpu';
 import { createSimulation, needsRestart } from './simulation';
 import { MOLECULE_COUNTS, boxLength } from './water-model';
+import { SPEED_BINS, speedHistogram, smoothHistogram } from './speed-distribution';
+import { createDistributionChart } from './distribution-chart';
 
 const get = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const play = get<HTMLButtonElement>('play-pause');
@@ -14,6 +16,14 @@ const status = get<HTMLElement>('playback-status');
 const stage = document.querySelector('.molecular-stage')!;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const controls = [play, reset, temperatureInput, densityInput, moleculeSelect, rate];
+const distribution = get<HTMLElement>('speed-distribution');
+const distributionChart = createDistributionChart(distribution);
+const histogram = new Float64Array(SPEED_BINS);
+const sample = new Float64Array(SPEED_BINS);
+let histogramReady = false;
+let statsReading = false;
+let statsDirty = true;
+let statsRevision = 0;
 
 let renderer: Awaited<ReturnType<typeof import('./background').createBackground>> | undefined;
 let simulation: ReturnType<typeof createSimulation> | undefined;
@@ -40,8 +50,17 @@ function stop() {
   cancelAnimationFrame(request);
   updateControls();
 }
+function invalidateDistribution() {
+  statsRevision++;
+  statsDirty = true;
+  histogramReady = false;
+  distribution.hidden = true;
+  distribution.parentElement!.hidden = true;
+}
 function fallback() {
   stop();
+  invalidateDistribution();
+  statsDirty = false;
   renderer?.dispose();
   renderer = undefined;
   simulation?.dispose();
@@ -58,7 +77,7 @@ function showTime() {
   get('box-length').textContent = `${simulation.box.toFixed(1)} Å`;
 }
 
-/** One animation frame: step, draw the latest sites, and refresh the readouts twice a second. */
+/** One animation frame: step, draw sites, and sample stats/state together every 200 ms. */
 function tick(time: number) {
   if (!simulation || !renderer) return;
   const steps = Number(rate.value);
@@ -85,24 +104,47 @@ function tick(time: number) {
     drawPending = true;
   }
   showTime();
-  if (time - lastStatsAt > 500) {
+  if (!statsReading && (statsDirty || time - lastStatsAt >= 200)) {
     lastStatsAt = time;
+    statsReading = true;
+    statsDirty = false;
+    const sampledSimulation = simulation;
+    const molecules = simulation.molecules;
+    const revision = statsRevision;
     const elapsed = (time - throughputAt) / 1000;
     if (elapsed > 0) {
       get('throughput').textContent = `${(stepsSince * 0.002 / elapsed).toFixed(1)} ps/s`;
       stepsSince = 0;
       throughputAt = time;
     }
-    void simulation.readStats().then(stats => {
+    // Issue both copies on this tick, before another animation frame can step the state.
+    void Promise.all([sampledSimulation.readStats(), sampledSimulation.readState()]).then(([stats, state]) => {
+      if (simulation !== sampledSimulation || statsRevision !== revision || simulation.molecules !== molecules) return;
       get('kinetic-temperature').textContent = `${Math.round(stats.translationalTemperature)} K`;
       // A diverged sample is restarted rather than left to fill the screen with artefacts. The
       // notice is transient: restore the normal status text shortly after, via the same
       // function the play/pause button uses, so it doesn't keep claiming a restart forever.
       if (needsRestart(stats)) {
-        simulation?.reset();
+        simulation.reset();
+        invalidateDistribution();
         status.textContent = '氷から再開しました';
         setTimeout(updateControls, 2000);
+        return;
       }
+      speedHistogram(state, molecules, sample);
+      if (histogramReady) smoothHistogram(histogram, sample);
+      else { histogram.set(sample); histogramReady = true; }
+      distributionChart.update(histogram, stats.translationalTemperature);
+      distribution.hidden = false;
+      distribution.parentElement!.hidden = false;
+    }).catch(error => {
+      if (simulation !== sampledSimulation || statsRevision !== revision) return;
+      console.warn('Simulation statistics unavailable', error);
+      fallback();
+    }).finally(() => {
+      statsReading = false;
+      // A reset during an in-flight read still needs its one new sample while paused.
+      if (statsDirty && !playing && simulation) requestAnimationFrame(tick);
     });
   }
   if (playing) request = requestAnimationFrame(tick);
@@ -120,6 +162,7 @@ function start() {
 play.addEventListener('click', () => playing ? stop() : start());
 reset.addEventListener('click', () => {
   simulation?.reset();
+  invalidateDistribution();
   showTime();
   if (!playing) requestAnimationFrame(tick);
 });
@@ -139,6 +182,7 @@ densityInput.addEventListener('input', () => {
 moleculeSelect.addEventListener('change', () => {
   const molecules = Number(moleculeSelect.value);
   simulation?.setMolecules(molecules);
+  invalidateDistribution();
   simulation?.setDensity(Number(densityInput.value) / 100);
   renderer?.resize(molecules);
   showTime();

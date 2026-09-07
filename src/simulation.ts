@@ -105,6 +105,9 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     buffers.state.write(source(state.state));
     buffers.sites.write(source(state.sites));
     buffers.charges.write(source(state.charges));
+    // A paused reset may read diagnostics before stepping. Discard force/torque values
+    // from the previous configuration (possibly divergent); step() recomputes them.
+    buffers.forceTorque.write(new Float32Array(molecules * 8));
     statsBuffer.write(new Float32Array([temperature, temperature, 0, 0]));
     params.set({ box: simulation.box, cutoff: simulation.cutoff, molecules, temperature,
       step: stepCount, seed, scale: 1 });
