@@ -31,7 +31,9 @@ the redistribution step and its test.
 All pairs interact (O(N^2), GPU compute) under the minimum image convention with
 cutoff `clamp(0.45 L, 6, 9)` angstrom. Electrostatics use the Onsager reaction field
 with conducting boundary (eps_RF = infinity); both Coulomb and Lennard-Jones terms are
-shifted so forces vanish continuously at the cutoff. No PME, no dispersion correction.
+shifted so forces vanish continuously at the cutoff (the Lennard-Jones energy shift is
+`- (r - rc) U'(rc)`, i.e. plus `(r - rc)` times the force at the cutoff). No PME, no
+dispersion correction.
 
 Integration is rigid-body: centre-of-mass translation plus quaternion rotation with
 angular momentum in the principal frame, 2 fs time step, BAOAB Langevin thermostat on

@@ -18,7 +18,7 @@
 - Box length: `6.35 * cells / densityRatio ** (1/3)`, density ratio from 0.6 to 1.4, default 1.0.
 - Cutoff: `min(9, 0.49 * box)` — never half the box or more, so the minimum image convention holds at every density. Small systems therefore get a short cutoff (6.2 Å at 64 molecules and ice density, matching the 6 Å the OpenMM reference used).
 - Electrostatics: Onsager reaction field with conducting boundary. `U(r) = COULOMB * qa * qb * (1/r + r²/(2 rc³) - 3/(2 rc))`, radial force magnitude `COULOMB * qa * qb * (1/r² - r/rc³)`. Both vanish at `rc`.
-- Lennard-Jones on O-O only, force-shifted: `U(r) = U_lj(r) - U_lj(rc) + (r - rc) * U_lj'(rc)`, force `-U_lj'(r) + U_lj'(rc)`.
+- Lennard-Jones on O-O only, force-shifted: force `-U_lj'(r) + U_lj'(rc)`, whose integral is `U(r) = U_lj(r) - U_lj(rc) - (r - rc) * U_lj'(rc)` — that is, plus `(r - rc)` times the *force* at the cutoff, which is how the code writes it.
 - Pair inclusion is decided per molecule by the minimum-image O-O distance; all site pairs of an included molecule pair use that same molecular shift, so molecules are never split.
 - Integration: 2 fs time step, BAOAB Langevin on translation and rotation, friction 5 ps⁻¹.
 - The M site needs no force redistribution: rigid-body integration consumes only the net force and the net torque about the centre of mass, and the M site belongs to that rigid body.
