@@ -58,9 +58,44 @@ class ExplicitWaterTests(unittest.TestCase):
         self.assertEqual(len(hydrogen_bonds(xyz)),128)
 
     def test_generated_trajectory(self):
-        metadata = json.loads((ROOT/'public/data/water.json').read_text())
-        xyz = np.fromfile(ROOT/'public/data/water.bin',dtype='<f4').reshape(-1,64,3,3)
+        metadata = json.loads((ROOT/'reference/water.json').read_text())
+        xyz = np.fromfile(ROOT/'reference/water.bin',dtype='<f4').reshape(-1,64,3,3)
         print(json.dumps(validate_trajectory(metadata,xyz),indent=2))
+
+
+class InitialStates(unittest.TestCase):
+    def test_ice_rules_hold_for_every_exported_cell_count(self):
+        for cells in (2, 3, 4):
+            count = 8 * cells ** 3
+            xyz, directed, adjacent = ice_configuration(cells=cells)
+            self.assertEqual(xyz.shape, (count, 3, 3))
+            self.assertTrue(np.all(adjacent.sum(axis=1) == 4))
+            # Each oxygen donates two protons and accepts two.
+            self.assertTrue(np.all(directed.sum(axis=1) == 2))
+            self.assertTrue(np.all(directed.sum(axis=0) == 2))
+            self.assertFalse(np.any(directed & directed.T))
+
+    def test_exported_files_are_rigid_wrapped_and_the_right_size(self):
+        for cells in (2, 3, 4):
+            count = 8 * cells ** 3
+            box = 6.35 * cells
+            path = ROOT / f'public/data/ice-{count}.bin'
+            raw = np.fromfile(path, dtype='<f4')
+            self.assertEqual(raw.size, count * 9)
+            xyz = raw.reshape(count, 3, 3).astype(float)
+            self.assertTrue(np.isfinite(xyz).all())
+            self.assertTrue(np.all((xyz[:, 0] >= 0) & (xyz[:, 0] < box)))
+            oh = xyz[:, 1:] - xyz[:, :1]
+            lengths = np.linalg.norm(oh, axis=-1)
+            self.assertLess(np.max(np.abs(lengths - .9572)), 2e-3)
+            cosines = np.sum(oh[:, 0] * oh[:, 1], axis=-1) / np.prod(lengths, axis=-1)
+            angles = np.rad2deg(np.arccos(np.clip(cosines, -1, 1)))
+            self.assertLess(np.max(np.abs(angles - 104.52)), .1)
+            # Nearest oxygen neighbours stay at the lattice spacing after minimisation.
+            d = minimum_image(xyz[:, 0][None] - xyz[:, 0][:, None], box)
+            r = np.linalg.norm(d, axis=-1)
+            np.fill_diagonal(r, np.inf)
+            self.assertGreater(r.min(), 2.3)
 
 
 if __name__ == '__main__':

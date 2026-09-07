@@ -33,21 +33,32 @@
         <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
         <span class="stage-label">MOLECULAR PERSPECTIVES</span>
         <img id="static-molecules" src="./molecules.svg" alt="" />
-        <canvas id="molecules"></canvas>
+        <canvas id="molecule-canvas"></canvas>
       </div>
 
-      <aside class="simulation-panel" aria-label="背景の分子シミュレーション">
+      <aside class="simulation-panel" aria-label="水の分子動力学計算">
         <div class="simulation-heading"><span class="small-label">WATER / <span id="phase-label">ICE Ic</span></span><span class="model-tag">TIP4P-Ew</span></div>
-        <div class="simulation-readout"><span><strong id="temperature">180</strong><span class="unit"> K</span></span><span class="simulation-caption">64 molecules<span id="sim-time">0.0 ps</span><span id="playback-status" role="status">静止画を表示中</span></span></div>
-        <div class="playback-controls">
-          <button id="play-pause" type="button" disabled aria-label="軌跡を再生">再生</button>
-          <label class="sr-only" for="timeline">軌跡の再生位置</label>
-          <input id="timeline" type="range" min="0" max="1000" value="0" disabled aria-valuetext="0.0 ピコ秒" />
-          <label class="sr-only" for="rate">再生速度</label>
-          <select id="rate" disabled><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
-          <button id="replay" type="button" disabled aria-label="軌跡を最初から再生">↺</button>
+        <div class="simulation-readout"><span><strong id="temperature">180</strong><span class="unit"> K</span></span><span class="simulation-caption">実測 <span id="kinetic-temperature">180 K</span><span id="sim-time">0.0 ps</span><span id="playback-status" role="status">静止画を表示中</span></span></div>
+        <div class="control-row">
+          <label for="temperature-input">温度</label>
+          <input id="temperature-input" type="range" min="150" max="500" step="5" value="180" disabled />
         </div>
-        <details class="simulation-details"><summary>この背景について <span aria-hidden="true">＋</span></summary><p>剛体TIP4P-Ew水64分子の事前計算軌跡です。酸素と2つの水素を描き、電荷サイトは描画していません。陽子無秩序な氷Icを180 Kから450 Kへ定積で加熱した小さな系で、平衡融点の測定ではありません。表示の温度はサーモスタットの設定値、時間はシミュレーション時間です。</p><p>実線は拘束された分子内O-H結合で、加熱しても切れません。破線は軌跡から幾何学的に判定した水素結合（O···O ≤ 3.5 Å、O-H···O ≥ 150°）で、追加の力ではありません。周期境界のバルク水を球状に切り出した窓を表示しており、液滴や表面ではありません。</p><p><a href="https://doi.org/10.1063/1.1683075" target="_blank" rel="noopener noreferrer">水モデルの原論文 ↗</a> · <a href="./data/water.json" download>メタデータ ↓</a> · <a href="./data/water.bin" download>座標 ↓</a></p></details>
+        <div class="control-row">
+          <label for="density-input">密度</label>
+          <input id="density-input" type="range" min="60" max="140" step="5" value="100" disabled />
+          <span class="control-value"><span id="density-ratio">1.00</span> · <span id="box-length">19.0 Å</span></span>
+        </div>
+        <div class="playback-controls">
+          <button id="play-pause" type="button" disabled aria-label="計算を一時停止">停止</button>
+          <label class="sr-only" for="molecules">分子数</label>
+          <select id="molecules" disabled><option value="64">64</option><option value="216" selected>216</option><option value="512">512</option></select>
+          <label class="sr-only" for="rate">計算速度</label>
+          <select id="rate" disabled><option value="2">0.5×</option><option value="8" selected>1×</option><option value="16">2×</option><option value="32">4×</option></select>
+          <button id="reset" type="button" disabled aria-label="氷から再開">↺</button>
+        </div>
+        <div class="simulation-metrics"><span>水素結合 <strong id="bond-count">0</strong></span><span id="throughput">0.0 ps/s</span></div>
+        <p class="simulation-caveats">近似: 長距離静電相互作用はPMEではなく反応場カットオフ、計算はf32単精度、摩擦5 ps⁻¹のLangevin熱浴で動力学は減衰しています。<strong>冷却しても氷には戻りません</strong>（↺は氷Icからの再開です）。</p>
+        <details class="simulation-details"><summary>この計算について <span class="details-marker" aria-hidden="true"></span></summary><p>剛体TIP4P-Ew水をブラウザのWebGPUで実時間計算しています。酸素と2つの水素を描き、電荷サイトは描画していません。実線は拘束された分子内O-H結合、破線は幾何学的に判定した水素結合（O···O ≤ 3.5 Å、O-H···O ≥ 150°）です。温度スライダーはサーモスタットの設定値で、実測値は瞬間の運動温度です。冷却しても氷に戻らないのは、この規模・時間スケールでは結晶核形成が起こらず、試料が非晶質に固まるためです。表示は周期境界のバルク水を球状に切り出した窓で、液滴や表面ではありません。</p><p><a href="https://doi.org/10.1063/1.1683075" target="_blank" rel="noopener noreferrer">水モデルの原論文 ↗</a> · <a href="./data/ice-216.bin" download>初期配置 ↓</a></p></details>
       </aside>
       <a href="#about" class="scroll-cue"><span>SCROLL TO EXPLORE</span><span aria-hidden="true">↓</span></a>
     </section>

@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findHydrogenBonds, molecularOpacity, periodicMolecules } from '../src/water-geometry.ts';
-import { decodeTrajectory, sampleFrame } from '../src/trajectory.ts';
 
 // O-H...O is linear for the first donor; a close acceptor in the wrong
 // direction must not count just because its O-O distance is small.
@@ -36,23 +35,4 @@ test('replicated observation window is continuous when a molecule wraps', () => 
     assert.ok(Math.abs(a[i].opacity-b[i].opacity) < .003);
   }
   assert.equal(molecularOpacity([6.6,0,0],10),0);
-});
-
-test('binary decode rejects truncated data', () => {
-  const header = { version:2,particles:1,box:10,atomOrder:['O','H','H'],coordinateFile:'water.bin',frames:[{temperature:180,timePs:0},{temperature:200,timePs:.02}] };
-  assert.throws(()=>decodeTrajectory(header,new ArrayBuffer(4)));
-});
-
-test('water interpolation keeps O-H bonds rigid and molecules whole at the boundary', () => {
-  const half = 104.52*Math.PI/360, c = .9572*Math.cos(half), s = .9572*Math.sin(half);
-  const header = { version:2,particles:1,box:10,atomOrder:['O','H','H'],coordinateFile:'water.bin',frames:[{temperature:180,timePs:0},{temperature:200,timePs:.02}] };
-  // Rotates 180 degrees around z as oxygen crosses the periodic boundary.
-  const binary = new Float32Array([9.8,5,5,9.8+c,5+s,5,9.8+c,5-s,5,.2,5,5,.2-c,5-s,5,.2-c,5+s,5]);
-  const data = decodeTrajectory(header,binary.buffer);
-  const out = new Float32Array(12);
-  sampleFrame(data,.5,out);
-  assert.ok(out[0]<1e-5 || Math.abs(out[0]-10)<1e-5);
-  for(const h of [4,8]) assert.ok(Math.abs(Math.hypot(out[h]-out[0],out[h+1]-out[1],out[h+2]-out[2])-.9572)<1e-5);
-  const dot=(out[4]-out[0])*(out[8]-out[0])+(out[5]-out[1])*(out[9]-out[1])+(out[6]-out[2])*(out[10]-out[2]);
-  assert.ok(Math.abs(dot/(.9572**2)-Math.cos(104.52*Math.PI/180))<1e-5);
 });

@@ -17,10 +17,9 @@ const HYDROGEN_BONDS_PER_MOLECULE = 6;
 /** Maps the observation sphere onto the vertical clip range. */
 export const viewScale = (box: number) => 1 / (WINDOW * box);
 
-export interface SceneCounts { atomCount: number; bondVertices: number }
+export interface SceneCounts { atomCount: number; bondVertices: number; hydrogenBonds: number }
 
-export function createScene(particles: number, box: number) {
-  const scale = viewScale(box);
+export function createScene(particles: number) {
   const atomCapacity = particles * IMAGES * 3;
   const bondCapacity = particles * IMAGES * (2 + HYDROGEN_BONDS_PER_MOLECULE);
   const atoms = new Float32Array(atomCapacity * ATOM_STRIDE);
@@ -33,14 +32,14 @@ export function createScene(particles: number, box: number) {
   const projected: Vector3 = [0, 0, 0];
 
   /** Rotates a box-centred position in angstrom into clip space with its depth. */
-  function project(x: number, y: number, z: number): Vector3 {
+  function project(x: number, y: number, z: number, scale: number): Vector3 {
     const rx = x * cos[0] + z * sin[0], rz = -x * sin[0] + z * cos[0];
     projected[0] = rx * scale;
     projected[1] = (y * cos[1] - rz * sin[1]) * scale;
     projected[2] = (y * sin[1] + rz * cos[1]) * scale;
     return projected;
   }
-  const cellOfShift = (shift: Vector3) =>
+  const cellOfShift = (shift: Vector3, box: number) =>
     (Math.round(shift[0] / box) + 1) * 9 + (Math.round(shift[1] / box) + 1) * 3 + Math.round(shift[2] / box) + 1;
 
   function writeBond(target: number, position: Vector3, phase: number, opacity: number, kind: number): void {
@@ -52,10 +51,14 @@ export function createScene(particles: number, box: number) {
     bonds[target + 5] = kind;
   }
 
-  function update(sites: Float32Array): SceneCounts {
+  /** The box arrives per update, so density and molecule-count changes rescale the view. */
+  function update(sites: Float32Array, box: number): SceneCounts {
+    const scale = viewScale(box);
     const images = periodicMolecules(sites, box);
     imageOfCell.fill(-1);
-    for (let i = 0; i < images.length; i++) imageOfCell[images[i].molecule * IMAGES + cellOfShift(images[i].shift)] = i;
+    for (let i = 0; i < images.length; i++) {
+      imageOfCell[images[i].molecule * IMAGES + cellOfShift(images[i].shift, box)] = i;
+    }
     let atomCount = 0;
     for (const image of images) {
       const base = image.molecule * 12;
@@ -63,7 +66,7 @@ export function createScene(particles: number, box: number) {
         const clip = project(
           sites[base + atom * 4] + image.shift[0] - box / 2,
           sites[base + atom * 4 + 1] + image.shift[1] - box / 2,
-          sites[base + atom * 4 + 2] + image.shift[2] - box / 2);
+          sites[base + atom * 4 + 2] + image.shift[2] - box / 2, scale);
         const target = atomCount * ATOM_STRIDE;
         scratch[target] = clip[0];
         scratch[target + 1] = clip[1];
@@ -82,7 +85,12 @@ export function createScene(particles: number, box: number) {
     }
 
     for (const list of donors) list.length = 0;
-    for (const bond of findHydrogenBonds(sites, box)) if (bond.strength > 0) donors[bond.donor].push(bond);
+    let hydrogenBonds = 0;
+    for (const bond of findHydrogenBonds(sites, box)) {
+      if (bond.strength <= 0) continue;
+      donors[bond.donor].push(bond);
+      hydrogenBonds++;
+    }
     let vertices = 0;
     const segment = (from: Vector3, to: Vector3, opacity: number, kind: number) => {
       if (vertices + 2 > bondCapacity * 2) return;
@@ -92,7 +100,8 @@ export function createScene(particles: number, box: number) {
     };
     const site = (molecule: number, atom: number, shift: Vector3): Vector3 => {
       const base = molecule * 12 + atom * 4;
-      return [...project(sites[base] + shift[0] - box / 2, sites[base + 1] + shift[1] - box / 2, sites[base + 2] + shift[2] - box / 2)];
+      return [...project(sites[base] + shift[0] - box / 2, sites[base + 1] + shift[1] - box / 2,
+        sites[base + 2] + shift[2] - box / 2, scale)];
     };
     for (const image of images) {
       const oxygen = site(image.molecule, 0, image.shift);
@@ -108,7 +117,7 @@ export function createScene(particles: number, box: number) {
         segment(site(image.molecule, bond.hydrogen, image.shift), site(bond.acceptor, 0, shift), opacity, 1);
       }
     }
-    return { atomCount, bondVertices: vertices };
+    return { atomCount, bondVertices: vertices, hydrogenBonds };
   }
 
   return { atoms, bonds, atomCapacity, bondCapacity, update };

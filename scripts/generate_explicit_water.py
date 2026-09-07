@@ -5,23 +5,30 @@ import numpy as np
 import openmm as mm
 from openmm import app, unit
 
-BOX = 12.7
+ICE_CELL = 6.35
+BOX = ICE_CELL * 2
 SEED = 22039
 ROOT = Path(__file__).resolve().parents[1]
+PLATFORM = mm.Platform.getPlatformByName('CPU')
+PLATFORM_PROPERTIES = {'Threads': '2', 'DeterministicForces': 'true'}
 
 
 def minimum_image(d, box=BOX):
     return d - box * np.rint(d / box)
 
 
-def ice_configuration(seed=SEED):
+def ice_configuration(cells=2, seed=SEED):
+    """Proton-disordered ice Ic for 8 * cells**3 molecules, satisfying the ice rules."""
+    count = 8 * cells ** 3
+    box = ICE_CELL * cells
     rng = np.random.default_rng(seed)
     fcc = np.array([[0,0,0], [0,.5,.5], [.5,0,.5], [.5,.5,0]])
     basis = np.concatenate([fcc, fcc + .25])
-    cells = np.indices((2,2,2)).reshape(3,-1).T
-    oxygen = ((cells[:,None,:] + basis).reshape(-1,3) + .125) * 6.35
-    d = minimum_image(oxygen[None] - oxygen[:,None])
-    adjacent = (np.linalg.norm(d, axis=-1) < 3) & (np.linalg.norm(d, axis=-1) > 0)
+    lattice = np.indices((cells,)*3).reshape(3,-1).T
+    oxygen = ((lattice[:,None,:] + basis).reshape(-1,3) + .125) * ICE_CELL
+    d = minimum_image(oxygen[None] - oxygen[:,None], box)
+    distance = np.linalg.norm(d, axis=-1)
+    adjacent = (distance < 3) & (distance > 0)
     graph = [set(np.flatnonzero(row)) for row in adjacent]
     stack, circuit = [0], []
     while stack:
@@ -33,19 +40,19 @@ def ice_configuration(seed=SEED):
             stack.append(j)
         else:
             circuit.append(stack.pop())
-    directed = np.zeros((64,64), bool)
+    directed = np.zeros((count,count), bool)
     for i, j in zip(circuit[:-1], circuit[1:]):
         directed[i,j] = True
-    xyz = np.zeros((64,3,3))
+    xyz = np.zeros((count,3,3))
     xyz[:,0] = oxygen
-    for i in range(64):
+    theta = np.deg2rad(104.52/2)
+    for i in range(count):
         v = d[i,np.flatnonzero(directed[i])]
         v /= np.linalg.norm(v,axis=1)[:,None]
         bisector = v[0]+v[1]
         bisector /= np.linalg.norm(bisector)
         tangent = v[0]-v[1]
         tangent /= np.linalg.norm(tangent)
-        theta = np.deg2rad(104.52/2)
         xyz[i,1:] = oxygen[i] + .9572 * np.array([
             np.cos(theta)*bisector + np.sin(theta)*tangent,
             np.cos(theta)*bisector - np.sin(theta)*tangent])
@@ -81,11 +88,11 @@ def hydrogen_bonds(xyz):
     return bonds
 
 
-def generate():
-    xyz, _, _ = ice_configuration()
+def build_system(xyz, box):
+    """Force field, virtual sites and PME setup shared by generate() and minimized()."""
     topology = app.Topology()
     chain = topology.addChain()
-    topology.setPeriodicBoxVectors(np.eye(3)*BOX/10*unit.nanometer)
+    topology.setPeriodicBoxVectors(np.eye(3)*box/10*unit.nanometer)
     for _ in xyz:
         residue = topology.addResidue('HOH',chain)
         atoms = [topology.addAtom(name, element, residue) for name,element in
@@ -96,17 +103,47 @@ def generate():
     modeller.addExtraParticles(forcefield)
     system = forcefield.createSystem(modeller.topology,nonbondedMethod=app.PME,
         nonbondedCutoff=.6*unit.nanometer,rigidWater=True,ewaldErrorTolerance=1e-5)
+    return modeller.topology, system, modeller.positions
+
+
+def minimized(cells):
+    """Energy-minimized ice configuration for the browser, in the same units as water.bin."""
+    xyz, _, _ = ice_configuration(cells=cells)
+    box = ICE_CELL * cells
+    topology, system, positions = build_system(xyz, box)
+    integrator = mm.LangevinMiddleIntegrator(180*unit.kelvin, 1/unit.picosecond, 2*unit.femtosecond)
+    simulation = app.Simulation(topology, system, integrator, PLATFORM, PLATFORM_PROPERTIES)
+    simulation.context.setPositions(positions)
+    simulation.minimizeEnergy()
+    state = simulation.context.getState(getPositions=True)
+    drawn = np.array(state.getPositions(asNumpy=True).value_in_unit(unit.angstrom))
+    drawn = drawn.reshape(-1, 4, 3)[:, :3]      # drop the virtual site
+    drawn[:, 1:] -= ICE_CELL * cells * np.rint((drawn[:, 1:] - drawn[:, :1]) / box)
+    drawn[:, 0] -= box * np.floor(drawn[:, 0] / box)
+    return drawn
+
+
+def export_initial_states():
+    for cells in (2, 3, 4):
+        drawn = minimized(cells)
+        destination = ROOT / f'public/data/ice-{8 * cells ** 3}.bin'
+        drawn.astype('<f4').tofile(destination)
+        print(f'Wrote {destination.name}: {drawn.shape[0]} molecules')
+
+
+def generate():
+    xyz, _, _ = ice_configuration()
+    topology, system, positions = build_system(xyz, BOX)
     integrator = mm.LangevinMiddleIntegrator(180*unit.kelvin,1/unit.picosecond,.002*unit.picoseconds)
     integrator.setRandomNumberSeed(SEED)
     integrator.setConstraintTolerance(1e-7)
-    platform = mm.Platform.getPlatformByName('CPU')
-    simulation = app.Simulation(modeller.topology,system,integrator,platform,{'Threads':'2','DeterministicForces':'true'})
-    simulation.context.setPositions(modeller.positions)
+    simulation = app.Simulation(topology,system,integrator,PLATFORM,PLATFORM_PROPERTIES)
+    simulation.context.setPositions(positions)
     simulation.minimizeEnergy(tolerance=1*unit.kilojoule_per_mole/unit.nanometer,maxIterations=1000)
     simulation.context.setVelocitiesToTemperature(180*unit.kelvin,SEED)
     simulation.step(5000) # 10 ps unrecorded equilibration
     print('Equilibrated 10 ps',flush=True)
-    physical = [a.index for a in modeller.topology.atoms() if a.element is not None]
+    physical = [a.index for a in topology.atoms() if a.element is not None]
     frames, coordinates = [], []
     dof = 3*192-system.getNumConstraints()-3
     for frame in range(2001):
@@ -140,15 +177,17 @@ def generate():
         'protocol':'Proton-disordered ice Ic; energy minimization and 10 ps equilibration at 180 K; fixed-volume periodic Langevin dynamics; recorded 5 ps at 180 K, 20 ps ramp to 450 K, 15 ps at 450 K. Rapid heating of a small system, not an equilibrium melting-point measurement.',
         'seed':SEED,'timestepFs':2,'frictionPerPs':1,'sampleStride':10,'equilibrationPs':10,
         'nonbondedMethod':'PME','cutoffAngstrom':6,'ewaldErrorTolerance':1e-5,
-        'openmmVersion':mm.__version__,'platform':platform.getName(),'constraints':'rigid water; virtual charge site omitted from display',
+        'openmmVersion':mm.__version__,'platform':PLATFORM.getName(),'constraints':'rigid water; virtual charge site omitted from display',
         'hydrogenBondCriterion':{'ooMaxAngstrom':3.5,'ohaMinDegrees':150},'frames':frames}
     array = np.asarray(coordinates,dtype='<f4')
     from test_explicit_water import validate_trajectory
     print(validate_trajectory(metadata,array),flush=True)
-    destination = ROOT/'public/data'
+    destination = ROOT / 'reference'
+    destination.mkdir(exist_ok=True)
     array.tofile(destination/'water.bin')
     (destination/'water.json').write_text(json.dumps(metadata,separators=(',',':'))+'\n')
 
 
 if __name__ == '__main__':
+    export_initial_states()
     generate()
