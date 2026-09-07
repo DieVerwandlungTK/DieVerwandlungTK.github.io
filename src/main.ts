@@ -22,6 +22,8 @@ let gpu: Gpu | undefined;
 let playing = false;
 let request = 0;
 let drawing = false;
+/** A draw was requested while a readback was already in flight, so it was skipped; catch up. */
+let drawPending = false;
 let lastStatsAt = 0;
 let stepsSince = 0;
 let throughputAt = 0;
@@ -73,7 +75,13 @@ function tick(time: number) {
       if (!renderer || simulation?.molecules !== molecules) return;
       const counts = renderer.render(sites, simulation.box);
       get('bond-count').textContent = String(counts.hydrogenBonds);
+      // A draw wanted while this readback was in flight (below) was skipped; catch up now
+      // rather than leaving the canvas stale. While playing the loop already reschedules every
+      // frame regardless, so only re-arm here when paused.
+      if (drawPending) { drawPending = false; if (!playing) requestAnimationFrame(tick); }
     }).catch(error => { console.warn('Background unavailable', error); fallback(); });
+  } else {
+    drawPending = true;
   }
   showTime();
   if (time - lastStatsAt > 500) {
@@ -86,8 +94,14 @@ function tick(time: number) {
     }
     void simulation.readStats().then(stats => {
       get('kinetic-temperature').textContent = `${Math.round(stats.translationalTemperature)} K`;
-      // A diverged sample is restarted rather than left to fill the screen with artefacts.
-      if (needsRestart(stats)) { simulation?.reset(); status.textContent = '氷から再開しました'; }
+      // A diverged sample is restarted rather than left to fill the screen with artefacts. The
+      // notice is transient: restore the normal status text shortly after, via the same
+      // function the play/pause button uses, so it doesn't keep claiming a restart forever.
+      if (needsRestart(stats)) {
+        simulation?.reset();
+        status.textContent = '氷から再開しました';
+        setTimeout(updateControls, 2000);
+      }
     });
   }
   if (playing) request = requestAnimationFrame(tick);
@@ -130,7 +144,15 @@ moleculeSelect.addEventListener('change', () => {
   if (!playing) requestAnimationFrame(tick);
 });
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && playing) { cancelAnimationFrame(request); request = requestAnimationFrame(tick); }
+  if (!document.hidden && playing) {
+    cancelAnimationFrame(request);
+    // Steps taken while hidden are not counted (tick skips stepping when document.hidden), but
+    // the throughput window spans the hidden time regardless; reset it so the next sample covers
+    // only time actually spent computing, instead of reading 0.0 ps/s for one window.
+    stepsSince = 0;
+    throughputAt = performance.now();
+    request = requestAnimationFrame(tick);
+  }
 });
 reducedMotion.addEventListener('change', () => { if (reducedMotion.matches) stop(); });
 window.addEventListener('pagehide', () => cancelAnimationFrame(request));
@@ -156,12 +178,18 @@ async function initialize() {
     renderer = await createBackground(gpu, get<HTMLCanvasElement>('molecule-canvas'), molecules, fallback);
     (window as unknown as { waterSimulation: unknown }).waterSimulation = simulation;
     stage.classList.add('ready');
-    for (const control of controls) control.disabled = false;
     showTime();
     get('box-length').textContent = `${boxLength(molecules, 1).toFixed(1)} Å`;
     renderer.render(await simulation.readSites(), simulation.box);
     updateControls();
     if (!reducedMotion.matches) start(); else requestAnimationFrame(tick);
+    // Enable the controls only now, after the loop is already running (or, under reduced
+    // motion, after the single frame above is queued). Enabling them any earlier — even just
+    // before this point, across the `await simulation.readSites()` above — leaves a real idle
+    // window in which the pause button already reads 計算を一時停止 while `playing` is still
+    // false, so the first click on it starts the loop instead of stopping it, and this function
+    // then starts it a second time. Order matters here even though it looks reorderable.
+    for (const control of controls) control.disabled = false;
   } catch (error) {
     console.warn('Using the static molecular background:', error);
     fallback();
