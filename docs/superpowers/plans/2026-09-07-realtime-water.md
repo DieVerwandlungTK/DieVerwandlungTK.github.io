@@ -1580,16 +1580,23 @@ fn quatDerivative(q: vec4f, w: vec3f) -> vec4f {
   return 0.5 * vec4f(q.w * w + cross(q.xyz, w), -dot(q.xyz, w));
 }
 
-/** Torque-free rotation, sub-stepped so Euler's equations stay accurate over half a step. */
+/**
+ * Torque-free rotation. The sub-steps bound the first-order error, and the magnitude of
+ * the body-frame angular momentum is restored afterwards because torque-free motion
+ * conserves it exactly: explicit Euler on Euler's equations otherwise grows it by about
+ * 1e-5 per half-step, which is a hidden heat source once the friction is lowered.
+ */
 fn freeRotation(start: vec4f, momentum: vec3f, duration: f32) -> Rotation {
   var q = start;
   var l = momentum;
+  let magnitude = length(momentum);
   let h = duration / 4.0;
   for (var sub = 0u; sub < 4u; sub++) {
     let w = l / INERTIA;
     l -= h * cross(w, l);
     q = normalize(q + h * quatDerivative(q, w));
   }
+  if (magnitude > 0.0) { l = magnitude * normalize(l); }
   return Rotation(q, l);
 }
 
@@ -1617,7 +1624,8 @@ fn integrate(@builtin(global_invocation_id) id: vec3u) {
   let decay = exp(-params.friction * dt);
   let spread = sqrt(1.0 - decay * decay);
   let energy = BOLTZMANN * params.temperature * FORCE_TO_ACCELERATION;
-  let stream = params.seed ^ (i * 2654435761u) ^ (params.step * 40503u);
+  // Mixed sequentially so distinct (molecule, step) pairs never share a stream.
+  let stream = hash(params.seed ^ hash(i ^ hash(params.step)));
   velocity = decay * velocity + spread * sqrt(energy / MOLECULE_MASS) * gaussian3(stream);
   angular = decay * angular + spread * sqrt(energy * INERTIA) * gaussian3(stream ^ 0x5bf03635u);
 
