@@ -100,7 +100,8 @@ test('molecules stay rigid after five thousand steps', async ({ page }) => {
     simulation.setTemperature(300);
     for (let batch = 0; batch < 50; batch++) simulation.step(100);
     const sites = await simulation.readSites();
-    let worstBond = 0, worstAngle = 0;
+    const state = Array.from(await simulation.readState() as Float32Array);
+    let worstBond = 0, worstAngle = 0, worstQuaternionNorm = 0;
     for (let molecule = 0; molecule < simulation.molecules; molecule++) {
       const site = (index: number) => [0, 1, 2].map(axis => sites[molecule * 12 + index * 4 + axis]);
       const oxygen = site(0);
@@ -108,12 +109,19 @@ test('molecules stay rigid after five thousand steps', async ({ page }) => {
       for (const bond of bonds) worstBond = Math.max(worstBond, Math.abs(Math.hypot(...bond) - LENGTH));
       const cosine = bonds[0].reduce((sum, value, axis) => sum + value * bonds[1][axis], 0) / LENGTH ** 2;
       worstAngle = Math.max(worstAngle, Math.abs(Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI - 104.52));
+      const quaternion = [0, 1, 2, 3].map(axis => state[molecule * 16 + 4 + axis]);
+      worstQuaternionNorm = Math.max(worstQuaternionNorm, Math.abs(Math.hypot(...quaternion) - 1));
     }
-    return { worstBond, worstAngle, timePs: simulation.timePs };
+    return { worstBond, worstAngle, worstQuaternionNorm, timePs: simulation.timePs };
   }, OH_LENGTH);
   expect(result.timePs).toBeCloseTo(10, 6);
+  // `writeSites` builds bonds as quatRotate(q, BODY_H - BODY_O), so bond length and angle can
+  // only deviate through the quaternion losing unit norm (or going non-finite) — these two
+  // assertions are a geometry cross-check, but the quaternion-norm assertion below is the one
+  // that directly tests what can actually go wrong, at a bound tight enough to catch it.
   expect(result.worstBond).toBeLessThan(0.001);
   expect(result.worstAngle).toBeLessThan(0.05);
+  expect(result.worstQuaternionNorm).toBeLessThan(1e-5);
 });
 
 test('the thermostat brings the sample to its set point and holds it', async ({ page }) => {
@@ -123,10 +131,12 @@ test('the thermostat brings the sample to its set point and holds it', async ({ 
     const simulation = (window as any).waterSimulation;
     simulation.setMolecules(216);
     simulation.setTemperature(300);
-    // Two picoseconds of equilibration at 5 /ps friction, then five samples over 2.5 ps.
+    // Two picoseconds of equilibration at 5 /ps friction, then twenty samples over 10 ps.
+    // Twenty samples (vs. five) halve the standard error on the mean for about two extra
+    // seconds of runtime, without needing to widen the 275-325 K window below.
     for (let batch = 0; batch < 10; batch++) simulation.step(100);
     const collected: number[][] = [];
-    for (let sample = 0; sample < 5; sample++) {
+    for (let sample = 0; sample < 20; sample++) {
       simulation.step(250);
       collected.push(Array.from(await simulation.readState() as Float32Array));
     }
@@ -153,9 +163,15 @@ test('the sample never acquires a net drift', async ({ page }) => {
   const { momentum, translational } = temperatures(drift.state, drift.molecules);
   // A Langevin thermostat does not conserve momentum exactly; it must stay small next
   // to the thermal momentum of a single molecule, sqrt(m kB T / 100) in amu A/ps.
+  // `momentum[axis]` is a sum of `molecules` independent draws, so its standard deviation is
+  // exactly `thermal * sqrt(molecules)`. A 3-sigma bound fails 0.27% of the time per axis, about
+  // 0.81% across all three axes on the random seed drawn each page load — flaky enough to be
+  // worth tightening. 4 sigma drops that to 0.006% per axis while staying far below the signal
+  // this test actually guards against: correlated noise across molecules, which would produce a
+  // momentum of order `molecules * thermal`, about 8x the bound below at 64 molecules.
   const thermal = Math.sqrt(MOLECULE_MASS * BOLTZMANN * translational * FORCE_TO_ACCELERATION);
   for (const axis of [0, 1, 2]) {
-    expect(Math.abs(momentum[axis])).toBeLessThan(3 * thermal * Math.sqrt(drift.molecules));
+    expect(Math.abs(momentum[axis])).toBeLessThan(4 * thermal * Math.sqrt(drift.molecules));
   }
   expect(Number.isFinite(translational)).toBe(true);
 });

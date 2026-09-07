@@ -183,15 +183,28 @@ fn quatDerivative(q: vec4f, w: vec3f) -> vec4f {
   return 0.5 * vec4f(q.w * w + cross(q.xyz, w), -dot(q.xyz, w));
 }
 
-/** Torque-free rotation, sub-stepped so Euler's equations stay accurate over half a step. */
+/**
+ * Torque-free rotation, sub-stepped so the explicit-Euler update to Euler's equations keeps its
+ * first-order error small over each sub-step. That update is not itself norm-preserving: it can
+ * add a component of `l` along its own direction, so ||l|| would otherwise drift upward step
+ * after step. Torque-free motion conserves ||l|| exactly, so the magnitude captured on entry is
+ * restored once the sub-steps are done (a zero-magnitude input is left at zero, since
+ * `normalize` on a zero vector is undefined).
+ */
 fn freeRotation(start: vec4f, momentum: vec3f, duration: f32) -> Rotation {
   var q = start;
   var l = momentum;
+  let magnitude = length(momentum);
   let h = duration / 4.0;
   for (var sub = 0u; sub < 4u; sub++) {
     let w = l / INERTIA;
     l -= h * cross(w, l);
     q = normalize(q + h * quatDerivative(q, w));
+  }
+  if (magnitude > 0.0) {
+    l = normalize(l) * magnitude;
+  } else {
+    l = vec3f(0.0);
   }
   return Rotation(q, l);
 }
@@ -220,7 +233,11 @@ fn integrate(@builtin(global_invocation_id) id: vec3u) {
   let decay = exp(-params.friction * dt);
   let spread = sqrt(1.0 - decay * decay);
   let energy = BOLTZMANN * params.temperature * FORCE_TO_ACCELERATION;
-  let stream = params.seed ^ (i * 2654435761u) ^ (params.step * 40503u);
+  // Mix molecule and step sequentially through the hash rather than combining them with XOR
+  // and multiplication directly: that combination is not injective (distinct (i, step) pairs
+  // can land on the same stream), where chaining the hash spreads both indices' bits fully
+  // before they interact.
+  let stream = hash(params.seed ^ hash(i ^ hash(params.step)));
   velocity = decay * velocity + spread * sqrt(energy / MOLECULE_MASS) * gaussian3(stream);
   angular = decay * angular + spread * sqrt(energy * INERTIA) * gaussian3(stream ^ 0x5bf03635u);
 
