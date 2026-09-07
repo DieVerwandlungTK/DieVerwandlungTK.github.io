@@ -1765,6 +1765,15 @@ Expected: FAIL — `needsRestart` is not exported from `src/simulation.ts`.
 Add to `src/simulation.wgsl`:
 
 ```wgsl
+/** True for NaN and for infinity: an f32 exponent field of all ones. */
+fn isNonFinite(value: f32) -> bool {
+  return (bitcast<u32>(value) & 0x7f800000u) == 0x7f800000u;
+}
+
+fn anyNonFinite(value: vec3f) -> bool {
+  return isNonFinite(value.x) || isNonFinite(value.y) || isNonFinite(value.z);
+}
+
 const REDUCTION_LANES = 256u;
 var<workgroup> laneTranslational: array<f32, REDUCTION_LANES>;
 var<workgroup> laneRotational: array<f32, REDUCTION_LANES>;
@@ -1786,8 +1795,10 @@ fn reduce(@builtin(local_invocation_id) local: vec3u) {
     translational += MOLECULE_MASS * dot(velocity, velocity);
     rotational += dot(angular * angular / INERTIA, vec3f(1.0));
     peak = max(peak, length(force));
-    let finite = dot(velocity, velocity) + dot(angular, angular) + dot(force, force);
-    if (finite != finite || finite > 1e30) { broken = 1.0; }
+    // Bit inspection, not `x != x` or a magnitude test: some WebGPU backends compile
+    // with fast-math semantics where NaN comparisons are false and max() discards a NaN
+    // operand, which leaves a comparison-based guard dead on real hardware.
+    if (anyNonFinite(velocity) || anyNonFinite(angular) || anyNonFinite(force)) { broken = 1.0; }
   }
   laneTranslational[lane] = translational;
   laneRotational[lane] = rotational;
