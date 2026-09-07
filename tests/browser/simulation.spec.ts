@@ -168,7 +168,7 @@ test('the sample never acquires a net drift', async ({ page }) => {
   // 0.81% across all three axes on the random seed drawn each page load — flaky enough to be
   // worth tightening. 4 sigma drops that to 0.006% per axis while staying far below the signal
   // this test actually guards against: correlated noise across molecules, which would produce a
-  // momentum of order `molecules * thermal`, about 8x the bound below at 64 molecules.
+  // momentum of order `molecules * thermal`, twice the bound below at 64 molecules.
   const thermal = Math.sqrt(MOLECULE_MASS * BOLTZMANN * translational * FORCE_TO_ACCELERATION);
   for (const axis of [0, 1, 2]) {
     expect(Math.abs(momentum[axis])).toBeLessThan(4 * thermal * Math.sqrt(drift.molecules));
