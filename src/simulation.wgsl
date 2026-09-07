@@ -54,6 +54,13 @@ fn chargeSiteOf(molecule: u32, index: u32) -> vec3f {
   return sites[molecule * 3u + index + 1u].xyz;
 }
 
+/** Body-frame constant paired with chargeSiteOf's index, for the matching torque arm. */
+fn bodyArmOf(index: u32) -> vec3f {
+  if (index == 2u) { return BODY_CHARGE; }
+  if (index == 0u) { return BODY_HYDROGEN_A; }
+  return BODY_HYDROGEN_B;
+}
+
 fn chargeOf(index: u32) -> f32 {
   if (index == 2u) { return Q_M; }
   return Q_H;
@@ -77,11 +84,18 @@ fn reactionField(r: f32, product: f32, cutoff: f32) -> f32 {
 fn forces(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= params.molecules) { return; }
-  let centre = state[i * 4u].xyz;
+  let q = state[i * 4u + 1u];
   let oxygen = sites[i * 3u].xyz;
   let cutoff = params.cutoff;
   var force = vec3f(0.0);
   var torque = vec3f(0.0);
+  // Torque arms come from the quaternion (quatRotate(q, BODY_*)), not from `site - centre`:
+  // `sites`' oxygen is wrapped into [0, box) while `state`'s centre of mass is not, so once a
+  // molecule's centre and its wrapped oxygen land in different periodic images that subtraction
+  // is off by a whole box vector. The body-frame constants are already relative to the centre of
+  // mass, so quatRotate(q, BODY_*) gives the exact arm regardless of which image the sites wrap
+  // into. Do not "simplify" this back to `site - centre`.
+  let oxygenArm = quatRotate(q, BODY_OXYGEN);
   for (var j = 0u; j < params.molecules; j++) {
     if (j == i) { continue; }
     let raw = sites[j * 3u].xyz - oxygen;
@@ -93,9 +107,10 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
     // Lennard-Jones acts between the oxygens only.
     let pull = -lennardJones(r, cutoff) * delta / r;
     force += pull;
-    torque += cross(oxygen - centre, pull);
+    torque += cross(oxygenArm, pull);
     for (var a = 0u; a < 3u; a++) {
       let here = chargeSiteOf(i, a);
+      let arm = quatRotate(q, bodyArmOf(a));
       let qa = chargeOf(a);
       for (var b = 0u; b < 3u; b++) {
         let there = chargeSiteOf(j, b) + shift;
@@ -104,7 +119,7 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
         let magnitude = reactionField(distance, qa * chargeOf(b), cutoff);
         let contribution = -magnitude * separation / distance;
         force += contribution;
-        torque += cross(here - centre, contribution);
+        torque += cross(arm, contribution);
       }
     }
   }
