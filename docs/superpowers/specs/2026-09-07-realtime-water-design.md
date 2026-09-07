@@ -21,8 +21,12 @@ fresh random seed on every visit, so each visitor sees a different run.
 ## Physics
 
 Rigid TIP4P-Ew water. Lennard-Jones on oxygen; charges on the two hydrogens and on
-the massless M site. Each step builds the M site from O, H, H and redistributes the
-force on M back onto them by the same geometric weights.
+the massless M site, which sits 0.125 A from oxygen along the H-O-H bisector.
+
+The M-site force needs no redistribution onto O and H. Rigid-body integration consumes
+only the net force and the net torque about the centre of mass, and the M site is part
+of the same rigid body, so its force contributes to both sums directly. This removes
+the redistribution step and its test.
 
 All pairs interact (O(N^2), GPU compute) under the minimum image convention with
 cutoff `clamp(0.45 L, 6, 9)` angstrom. Electrostatics use the Onsager reaction field
@@ -147,9 +151,10 @@ Offline (Python):
 - `scripts/reference_forces.py` computes forces, torques and potential energy for the
   reaction-field TIP4P-Ew model on a fixed 64-molecule configuration and writes
   `tests/fixtures/reference-forces-64.json`.
-- `scripts/test_reference_forces.py` checks those forces against central-difference
-  derivatives of the potential (relative error below 1e-5), including the
-  redistribution of the M-site force. This is the foundation everything else rests on.
+- `scripts/test_reference_forces.py` checks those forces and torques against
+  central-difference derivatives of the potential, taken along rigid translations and
+  rigid rotations of one molecule (relative error below 1e-5). This is the foundation
+  everything else rests on.
 - The 300 K oxygen-oxygen radial distribution function from the existing OpenMM
   reference trajectory is exported into the same fixture directory.
 
