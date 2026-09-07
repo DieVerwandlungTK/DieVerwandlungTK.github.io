@@ -3,13 +3,10 @@ import shader from './simulation.wgsl?raw';
 import { MASS_H, MASS_O, MOLECULE_COUNTS, MOLECULE_MASS, boxLength, cutoffFor, type Vector3 } from './water-model';
 import { buildInitialState, chargeSite, moleculeSites, orientationOf,
   type InitialState, type Quaternion } from './initial-state';
+import type { SimulationStats } from './simulation-health';
 
-export interface SimulationStats {
-  translationalTemperature: number;
-  rotationalTemperature: number;
-  maximumForce: number;
-  nonFinite: boolean;
-}
+export { FORCE_LIMIT, needsRestart, type SimulationStats } from './simulation-health';
+
 export interface SimulationOptions {
   molecules: number;
   densityRatio: number;
@@ -34,6 +31,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
   const forceKernel = compute(gpu, shader, { entry: 'forces' });
   const rescaleKernel = compute(gpu, shader, { entry: 'rescale' });
   const integrateKernel = compute(gpu, shader, { entry: 'integrate' });
+  const reduceKernel = compute(gpu, shader, { entry: 'reduce' });
   const statsBuffer = storage(gpu, 4 * 4, 'read-write');
 
   let molecules = options.molecules;
@@ -62,6 +60,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     forceKernel.set(bag);
     rescaleKernel.set(bag);
     integrateKernel.set(bag);
+    reduceKernel.set(bag);
   }
 
   /** Uploads a fresh ice configuration and the matching uniforms. */
@@ -87,6 +86,17 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
 
   async function readState(): Promise<Float32Array> {
     return new Float32Array(await buffers.state.read());
+  }
+
+  async function readStats(): Promise<SimulationStats> {
+    reduceKernel.dispatch(1);
+    const values = new Float32Array(await statsBuffer.read());
+    return {
+      translationalTemperature: values[0],
+      rotationalTemperature: values[1],
+      maximumForce: values[2],
+      nonFinite: values[3] > 0,
+    };
   }
 
   /** Advances the sample by `count` BAOAB steps: one force evaluation each. */
@@ -158,6 +168,7 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     get timePs() { return stepCount * TIME_STEP; },
     readSites,
     readState,
+    readStats,
     step,
     evaluateForces,
     setTemperature(kelvin: number) { temperature = kelvin; params.set({ temperature }); },

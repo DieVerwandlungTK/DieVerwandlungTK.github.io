@@ -254,3 +254,53 @@ fn integrate(@builtin(global_invocation_id) id: vec3u) {
   state[i * 4u + 3u] = vec4f(angular, 0.0);
   writeSites(i);
 }
+
+const REDUCTION_LANES = 256u;
+var<workgroup> laneTranslational: array<f32, REDUCTION_LANES>;
+var<workgroup> laneRotational: array<f32, REDUCTION_LANES>;
+var<workgroup> laneForce: array<f32, REDUCTION_LANES>;
+var<workgroup> laneBroken: array<f32, REDUCTION_LANES>;
+
+/** One workgroup reduces the whole sample; dispatch it with a single group. */
+@compute @workgroup_size(256)
+fn reduce(@builtin(local_invocation_id) local: vec3u) {
+  let lane = local.x;
+  var translational = 0.0;
+  var rotational = 0.0;
+  var peak = 0.0;
+  var broken = 0.0;
+  for (var i = lane; i < params.molecules; i += REDUCTION_LANES) {
+    let velocity = state[i * 4u + 2u].xyz;
+    let angular = state[i * 4u + 3u].xyz;
+    let force = forceTorque[i * 2u].xyz;
+    translational += MOLECULE_MASS * dot(velocity, velocity);
+    rotational += dot(angular * angular / INERTIA, vec3f(1.0));
+    peak = max(peak, length(force));
+    let finite = dot(velocity, velocity) + dot(angular, angular) + dot(force, force);
+    if (finite != finite || finite > 1e30) { broken = 1.0; }
+  }
+  laneTranslational[lane] = translational;
+  laneRotational[lane] = rotational;
+  laneForce[lane] = peak;
+  laneBroken[lane] = broken;
+  workgroupBarrier();
+  var width = REDUCTION_LANES / 2u;
+  loop {
+    if (width == 0u) { break; }
+    if (lane < width) {
+      laneTranslational[lane] += laneTranslational[lane + width];
+      laneRotational[lane] += laneRotational[lane + width];
+      laneForce[lane] = max(laneForce[lane], laneForce[lane + width]);
+      laneBroken[lane] = max(laneBroken[lane], laneBroken[lane + width]);
+    }
+    workgroupBarrier();
+    width = width / 2u;
+  }
+  if (lane == 0u) {
+    let degrees = 3.0 * f32(params.molecules) * BOLTZMANN * FORCE_TO_ACCELERATION;
+    stats[0] = laneTranslational[0] / degrees;
+    stats[1] = laneRotational[0] / degrees;
+    stats[2] = laneForce[0];
+    stats[3] = laneBroken[0];
+  }
+}
