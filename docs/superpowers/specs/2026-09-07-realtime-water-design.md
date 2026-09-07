@@ -128,12 +128,13 @@ The timeline scrubber is removed; a live simulation has no seekable timeline.
 
 ## Test interface
 
-The browser tests need the simulation state, not pixels. `src/simulation.ts` exposes a
-small object on `window.waterSimulation` in every build: the current sites as a
-`Float32Array`, the latest statistics (kinetic temperature, maximum force, non-finite
-flag), the elapsed simulation time, the measured steps per second, and two methods used
-only by tests — one that loads a given configuration and evaluates forces once without
-integrating, and one that steps a fixed number of times synchronously. It is a few
+The browser tests need the simulation state, not pixels. `src/simulation.ts` exposes the live
+simulation object on `window.waterSimulation` in every build: the current sites and the
+raw rigid-body state as `Float32Array`s, the latest statistics (kinetic temperatures,
+maximum force, non-finite flag), the elapsed simulation time, the controls the panel
+uses, and one method used only by tests, which loads a given configuration and evaluates
+forces once without integrating. Step rate is measured by the tests themselves, and by
+the panel for its own readout. It is a few
 dozen lines, carries no secrets, and keeping it in the production build means the tests
 exercise exactly what visitors run.
 
