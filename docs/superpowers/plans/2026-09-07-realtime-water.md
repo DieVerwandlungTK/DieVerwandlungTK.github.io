@@ -1130,6 +1130,13 @@ fn chargeOf(index: u32) -> f32 {
   return Q_H;
 }
 
+/** Body-frame position of charge site a, for torque lever arms. */
+fn bodyChargeSiteOf(index: u32) -> vec3f {
+  if (index == 0u) { return BODY_HYDROGEN_A; }
+  if (index == 1u) { return BODY_HYDROGEN_B; }
+  return BODY_CHARGE;
+}
+
 /** Force-shifted Lennard-Jones magnitude; positive is repulsive. */
 fn lennardJones(r: f32, cutoff: f32) -> f32 {
   let s6 = pow(SIGMA_O / r, 6.0);
@@ -1148,7 +1155,7 @@ fn reactionField(r: f32, product: f32, cutoff: f32) -> f32 {
 fn forces(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
   if (i >= params.molecules) { return; }
-  let centre = state[i * 4u].xyz;
+  let q = state[i * 4u + 1u];
   let oxygen = sites[i * 3u].xyz;
   let cutoff = params.cutoff;
   var force = vec3f(0.0);
@@ -1164,7 +1171,10 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
     // Lennard-Jones acts between the oxygens only.
     let pull = -lennardJones(r, cutoff) * delta / r;
     force += pull;
-    torque += cross(oxygen - centre, pull);
+    // Lever arms come from the orientation, not from the site coordinates: the sites
+    // are placed relative to the wrapped oxygen, so `site - centre` is off by a box
+    // vector whenever the two sit in different periodic images.
+    torque += cross(quatRotate(q, BODY_OXYGEN), pull);
     for (var a = 0u; a < 3u; a++) {
       let here = chargeSiteOf(i, a);
       let qa = chargeOf(a);
@@ -1175,7 +1185,7 @@ fn forces(@builtin(global_invocation_id) id: vec3u) {
         let magnitude = reactionField(distance, qa * chargeOf(b), cutoff);
         let contribution = -magnitude * separation / distance;
         force += contribution;
-        torque += cross(here - centre, contribution);
+        torque += cross(quatRotate(q, bodyChargeSiteOf(a)), contribution);
       }
     }
   }
