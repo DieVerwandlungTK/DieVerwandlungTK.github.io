@@ -47,7 +47,17 @@ def rotate_molecule(molecule, axis, angle):
 
 
 def _pairs(xyz, box, cutoff):
-    """Yields molecule pairs within the cutoff together with the shift applied to j."""
+    """Yields molecule pairs within the cutoff, together with the minimum-image offset
+    of j relative to i (added to j's site positions when computing a distance; j's
+    stored coordinates are never shifted).
+
+    Inclusion is decided once per pair, by O-O distance alone. Individual site-pair
+    terms in `_reaction_field`/`_lennard_jones` vanish at their own r = cutoff, but
+    since sites sit off the O-O axis, a pair admitted by that O-O test generally has
+    site separations a little short of or past cutoff -- so site-pair energies and
+    forces are generally nonzero right at the molecular boundary. That discontinuity
+    is the intended, molecule-based approximation.
+    """
     for i in range(len(xyz)):
         for j in range(i + 1, len(xyz)):
             delta = xyz[j, 0] - xyz[i, 0]
@@ -74,6 +84,8 @@ def _reaction_field(r, product, cutoff):
 
 
 def potential(xyz, box, cutoff):
+    # Mirrors the pair/site loop structure of forces_and_torques below -- the two must
+    # stay in lockstep. This is exactly where the periodic lever-arm bug lived.
     total = 0.0
     for i, j, shift in _pairs(xyz, box, cutoff):
         d = (xyz[j, 0] + shift) - xyz[i, 0]
@@ -86,6 +98,8 @@ def potential(xyz, box, cutoff):
 
 
 def forces_and_torques(xyz, box, cutoff):
+    # Mirrors the pair/site loop structure of potential above -- the two must stay in
+    # lockstep. This is exactly where the periodic lever-arm bug lived.
     forces = np.zeros((len(xyz), 3))
     torques = np.zeros((len(xyz), 3))
     centres = np.array([centre_of_mass(molecule) for molecule in xyz])
