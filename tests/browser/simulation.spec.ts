@@ -228,3 +228,133 @@ test('the divergence guard survives NaN saturation and recovers after a restart'
   expect(result.healthy.nonFinite).toBe(false);
   expect(needsRestart(result.healthy)).toBe(false);
 });
+
+/** Fraction of ideal tetrahedral order over the four nearest oxygen neighbours. */
+function tetrahedralOrder(sites: number[], molecules: number, box: number): number {
+  const oxygen = (index: number) => [0, 1, 2].map(axis => sites[index * 12 + axis]);
+  let total = 0;
+  for (let i = 0; i < molecules; i++) {
+    const here = oxygen(i);
+    const neighbours: { distance: number; direction: number[] }[] = [];
+    for (let j = 0; j < molecules; j++) {
+      if (i === j) continue;
+      const delta = oxygen(j).map((value, axis) => {
+        const raw = value - here[axis];
+        return raw - box * Math.round(raw / box);
+      });
+      neighbours.push({ distance: Math.hypot(...delta), direction: delta });
+    }
+    neighbours.sort((a, b) => a.distance - b.distance);
+    const nearest = neighbours.slice(0, 4).map(entry =>
+      entry.direction.map(value => value / entry.distance));
+    let order = 1;
+    for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) {
+      const cosine = nearest[a].reduce((sum, value, axis) => sum + value * nearest[b][axis], 0);
+      order -= 3 / 8 * (cosine + 1 / 3) ** 2;
+    }
+    total += order;
+  }
+  return total / molecules;
+}
+
+test('heating destroys the tetrahedral lattice while cold holds it', async ({ page }) => {
+  test.setTimeout(300000);
+  await ready(page);
+  const run = (kelvin: number) => page.evaluate(async temperature => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(216);
+    simulation.reset();
+    simulation.setTemperature(temperature);
+    for (let batch = 0; batch < 100; batch++) simulation.step(100);   // 20 ps
+    return { sites: Array.from(await simulation.readSites() as Float32Array),
+      molecules: simulation.molecules, box: simulation.box };
+  }, kelvin);
+  const cold = await run(180);
+  const hot = await run(520);
+  const coldOrder = tetrahedralOrder(cold.sites, cold.molecules, cold.box);
+  const hotOrder = tetrahedralOrder(hot.sites, hot.molecules, hot.box);
+  expect(coldOrder).toBeGreaterThan(0.85);
+  expect(hotOrder).toBeLessThan(0.7);
+  expect(coldOrder - hotOrder).toBeGreaterThan(0.2);
+});
+
+test('the first oxygen shell agrees with the OpenMM reference', async ({ page }) => {
+  test.setTimeout(300000);
+  const reference = JSON.parse(await readFile('tests/fixtures/reference-rdf-300k.json', 'utf8'));
+  await ready(page);
+  const measured = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(216);
+    simulation.reset();
+    simulation.setTemperature(300);
+    for (let batch = 0; batch < 150; batch++) simulation.step(100);   // 30 ps of equilibration
+    const frames: number[][] = [];
+    for (let sample = 0; sample < 20; sample++) {
+      simulation.step(250);
+      frames.push(Array.from(await simulation.readSites() as Float32Array));
+    }
+    return { frames, molecules: simulation.molecules, box: simulation.box };
+  });
+  const width = 0.05, start = 2, bins = new Array(80).fill(0);
+  for (const sites of measured.frames) {
+    for (let i = 0; i < measured.molecules; i++) for (let j = i + 1; j < measured.molecules; j++) {
+      const distance = Math.hypot(...[0, 1, 2].map(axis => {
+        const raw = sites[j * 12 + axis] - sites[i * 12 + axis];
+        return raw - measured.box * Math.round(raw / measured.box);
+      }));
+      const bin = Math.floor((distance - start) / width);
+      if (bin >= 0 && bin < bins.length) bins[bin]++;
+    }
+  }
+  const density = measured.molecules / measured.box ** 3;
+  const gr = bins.map((count, index) => {
+    const inner = start + index * width, outer = inner + width;
+    const shell = 4 / 3 * Math.PI * (outer ** 3 - inner ** 3);
+    return count / (shell * density * measured.molecules / 2 * measured.frames.length);
+  });
+  const near = gr.slice(0, Math.floor((4 - start) / width));
+  const peak = start + width * (near.indexOf(Math.max(...near)) + 0.5);
+  expect(Math.abs(peak - reference.firstPeak)).toBeLessThan(0.15);
+  expect(Math.max(...near)).toBeGreaterThan(1.8);
+});
+
+test('the largest sample runs for half a minute without diverging', async ({ page }) => {
+  test.setTimeout(120000);
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(512);
+    simulation.setTemperature(400);
+    const deadline = performance.now() + 30000;
+    let steps = 0;
+    while (performance.now() < deadline) {
+      simulation.step(16);
+      steps += 16;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    }
+    return { steps, stats: await simulation.readStats() };
+  });
+  expect(result.stats.nonFinite).toBe(false);
+  expect(result.stats.maximumForce).toBeLessThan(50000);
+  expect(result.stats.translationalTemperature).toBeGreaterThan(300);
+  expect(result.stats.translationalTemperature).toBeLessThan(500);
+  expect(result.steps).toBeGreaterThan(1000);
+});
+
+test('the default sample sustains a usable step rate on this machine', async ({ page }) => {
+  test.setTimeout(60000);
+  await ready(page);
+  const rate = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(216);
+    simulation.step(200);
+    await simulation.readStats();
+    const started = performance.now();
+    let steps = 0;
+    while (performance.now() - started < 3000) { simulation.step(16); steps += 16; }
+    await simulation.readStats();
+    return steps / ((performance.now() - started) / 1000);
+  });
+  // 300 steps/s is 0.6 ps/s: slow but still watchable. Local GPUs reach several times this.
+  expect(rate).toBeGreaterThan(300);
+});
