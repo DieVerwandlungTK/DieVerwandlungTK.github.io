@@ -44,6 +44,7 @@ function fallback() {
   stop();
   renderer?.dispose();
   renderer = undefined;
+  simulation?.dispose();
   simulation = undefined;
   gpu?.dispose();
   gpu = undefined;

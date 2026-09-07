@@ -184,13 +184,19 @@ test('the body-frame angular momentum magnitude holds under torque-free rotation
   const expectedRatio = Math.exp(-FRICTION * TIME_STEP) ** STEPS;
   for (let molecule = 0; molecule < result.initial.length; molecule++) {
     const actualRatio = result.final[molecule] / result.initial[molecule];
-    // A pre-fix regression (see .superpowers/sdd/task-6-report.md) measured freeRotation
-    // inflating ||L_body|| by about 1.81e-5 relative per call, two calls per step; compounded
-    // over 500 steps (1000 calls) that is roughly a 1.8% excess over the expected decay, well
-    // outside the 0.5% margin below. A from-scratch measurement on this branch (post-fix) put the
-    // actual deviation at f32-round-off level, several orders of magnitude under that margin (see
-    // the task report appended to this task's own report).
-    expect(Math.abs(actualRatio / expectedRatio - 1)).toBeLessThan(0.005);
+    // A pre-fix regression (see .superpowers/sdd/task-6-report.md) estimated freeRotation
+    // inflating ||L_body|| by about 1.81e-5 relative per call, two calls per step, and
+    // extrapolated that flat rate over 500 steps (1000 calls) to a ~1.8% excess. That estimate
+    // treats the inflation as constant, but the Euler drift freeRotation accumulates each sub-step
+    // is second order in ||L||, and T=0 here means the thermostat's friction alone shrinks ||L||
+    // by exp(-FRICTION * TIME_STEP * STEPS) = exp(-5) over the run -- a cold set point, not a hot
+    // one. The drift collapses along with ||L|| far faster than the flat-rate estimate assumes, so
+    // margin has to be tight to actually catch the bug rather than generously sized around the old
+    // (wrong) figure: measuring the real regression on this branch (freeRotation's magnitude
+    // restore removed) gives a worst deviation of 2.54e-3 -- comfortably past a loose margin like
+    // the old 0.005, but the fixed code measures 5.95e-6, so 1e-4 sits about 17x above the
+    // post-fix f32 floor and about 25x below the actual regression (see this task's report).
+    expect(Math.abs(actualRatio / expectedRatio - 1)).toBeLessThan(1e-4);
   }
 });
 
