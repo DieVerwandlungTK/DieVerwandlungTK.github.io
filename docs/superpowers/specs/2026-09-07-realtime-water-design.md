@@ -72,10 +72,16 @@ New:
   scales it to the requested density, and assigns Maxwell-Boltzmann velocities and
   angular momenta from a seeded generator with zero total momentum.
 
-Reused unchanged: `src/scene.ts` (periodic images, observation window, hydrogen-bond
-geometry, projection), `findHydrogenBonds` / `periodicMolecules` / `molecularOpacity`
-in `src/water-geometry.ts`, `src/background.ts`, and both render shaders. Their unit
-tests keep their meaning.
+Reused: `src/scene.ts` (periodic images, observation window, hydrogen-bond geometry,
+projection), `findHydrogenBonds` / `periodicMolecules` / `molecularOpacity` in
+`src/water-geometry.ts`, `src/background.ts`, and both render shaders. Their unit tests
+keep their meaning.
+
+One change is needed there: `createScene(particles, box)` currently freezes the box
+length at construction, but the density slider changes it while running. `update` takes
+the current box length instead, and the view scale is recomputed per frame; capacity
+still comes from the molecule count. Changing the molecule count recreates the scene
+and the GPU buffers.
 
 Removed: `src/trajectory.ts` and `tests/trajectory.test.ts`; `interpolateHydrogens`
 (and its quaternion helpers and test), which existed only to interpolate between
@@ -101,18 +107,35 @@ to a compute shader afterwards — measured first, not assumed.
 
 The timeline scrubber is removed; a live simulation has no seekable timeline.
 
-- Temperature: 150-500 K slider, showing the set point and the measured kinetic
-  temperature separately.
-- Density: slider showing the box length in angstrom and the ratio to ice density.
+- Temperature: 150-500 K slider, default 180 K so the first impression is the ice
+  lattice, showing the set point and the measured kinetic temperature separately.
+- Density: slider from 0.6 to 1.4 times ice density, default 1.0, showing the box
+  length in angstrom and the ratio.
 - Molecules: 64 / 216 / 512, defaulting to 216, and to 64 on viewports of 720 px or
   less.
 - Pause and resume; reset, which restarts from ice Ic.
-- Speed: steps per frame, with the measured picoseconds per second displayed.
+- Speed: steps per frame (2 / 8 / 16 / 32, default 8), with the measured picoseconds
+  per second displayed.
 - Readouts: elapsed simulation time in picoseconds and the hydrogen-bond count in the
   cell.
 - Reduced-motion settings show the initial ice configuration, paused, without stepping.
 - Without WebGPU the static SVG remains the fallback, regenerated from the 216-molecule
   initial configuration.
+
+## Test interface
+
+The browser tests need the simulation state, not pixels. `src/simulation.ts` exposes a
+small object on `window.waterSimulation` in every build: the current sites as a
+`Float32Array`, the latest statistics (kinetic temperature, maximum force, non-finite
+flag), the elapsed simulation time, the measured steps per second, and two methods used
+only by tests — one that loads a given configuration and evaluates forces once without
+integrating, and one that steps a fixed number of times synchronously. It is a few
+dozen lines, carries no secrets, and keeping it in the production build means the tests
+exercise exactly what visitors run.
+
+Derived quantities the tests need (rigid geometry, total momentum, tetrahedral order,
+the radial distribution function) are computed inside the tests from those sites, not
+in application code.
 
 ## Verification
 
