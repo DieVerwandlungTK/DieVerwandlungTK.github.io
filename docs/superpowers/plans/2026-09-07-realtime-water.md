@@ -1600,7 +1600,14 @@ fn freeRotation(start: vec4f, momentum: vec3f, duration: f32) -> Rotation {
   return Rotation(q, l);
 }
 
-/** One BAOAB step. The trailing half kick is the leading one of the next step. */
+/**
+ * One BAOAB step, written as B A O A with the trailing half kick folded into the leading one of
+ * the next step. Both halves use the same force -- the one evaluated at the configuration this
+ * step ends on -- so together they are a *full* dt kick: the kick below carries `dt`, not
+ * `0.5 * dt`, even though each drift carries `0.5 * dt`. Halving it makes every molecule feel
+ * half the force while the thermostat still injects noise for the full set point, which samples
+ * the potential at twice the set temperature.
+ */
 @compute @workgroup_size(64)
 fn integrate(@builtin(global_invocation_id) id: vec3u) {
   let i = id.x;
@@ -1613,8 +1620,8 @@ fn integrate(@builtin(global_invocation_id) id: vec3u) {
   let force = forceTorque[i * 2u].xyz;
   let torque = quatInverseRotate(q, forceTorque[i * 2u + 1u].xyz);
 
-  velocity += 0.5 * dt * FORCE_TO_ACCELERATION * force / MOLECULE_MASS;
-  angular += 0.5 * dt * FORCE_TO_ACCELERATION * torque;
+  velocity += dt * FORCE_TO_ACCELERATION * force / MOLECULE_MASS;
+  angular += dt * FORCE_TO_ACCELERATION * torque;
 
   centre += 0.5 * dt * velocity;
   var rotation = freeRotation(q, angular, 0.5 * dt);
