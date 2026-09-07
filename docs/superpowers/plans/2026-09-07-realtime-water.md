@@ -1399,7 +1399,7 @@ for (const count of MOLECULE_COUNTS) {
 }
 const gpu = await init({ powerPreference: 'low-power' });
 const simulation = createSimulation(gpu, { molecules: 216, densityRatio: 1, temperature: 180, ice });
-renderer = await createBackground(gpu, get<HTMLCanvasElement>('molecules'), simulation.molecules, fallback);
+renderer = await createBackground(gpu, get<HTMLCanvasElement>('molecule-canvas'), simulation.molecules, fallback);
 (window as unknown as { waterSimulation: unknown }).waterSimulation = simulation;
 stage.classList.add('ready');
 ```
@@ -2295,7 +2295,7 @@ Replace the `<aside class="simulation-panel">` block in `index.html` with:
         <div class="control-row">
           <label for="density-input">密度</label>
           <input id="density-input" type="range" min="60" max="140" step="5" value="100" disabled />
-          <span class="control-value"><span id="density-ratio">1.00</span> · <span id="box-length">19.1 Å</span></span>
+          <span class="control-value"><span id="density-ratio">1.00</span> · <span id="box-length">19.0 Å</span></span>
         </div>
         <div class="playback-controls">
           <button id="play-pause" type="button" disabled aria-label="計算を一時停止">停止</button>
@@ -2469,15 +2469,17 @@ async function initialize() {
     const gpu = await init({ powerPreference: 'low-power' });
     simulation = createSimulation(gpu, { molecules, densityRatio: 1, temperature: 180, ice });
     const { createBackground } = await import('./background');
-    renderer = await createBackground(gpu, get<HTMLCanvasElement>('molecules'), molecules, fallback);
+    renderer = await createBackground(gpu, get<HTMLCanvasElement>('molecule-canvas'), molecules, fallback);
     (window as unknown as { waterSimulation: unknown }).waterSimulation = simulation;
     stage.classList.add('ready');
-    for (const control of controls) control.disabled = false;
     showTime();
     get('box-length').textContent = `${boxLength(molecules, 1).toFixed(1)} Å`;
     renderer.render(await simulation.readSites(), simulation.box);
     updateControls();
     if (!reducedMotion.matches) start(); else requestAnimationFrame(tick);
+    // Enabled last: between enabling and start() the pause button reads 停止 while
+    // `playing` is still false, so a click in that window starts the loop instead.
+    for (const control of controls) control.disabled = false;
   } catch (error) {
     console.warn('Using the static molecular background:', error);
     fallback();
