@@ -28,14 +28,17 @@ with `m = 18.015324` amu, `kB = 0.0083144626` kJ/mol/K and the project's
 kinetic temperature from `readStats()`.
 
 **Both axes are fixed.** The horizontal axis runs 0 to 18 A/ps; the vertical axis is
-fixed to the theoretical peak at 150 K, 0.2231 ps/A. Auto-scaling either axis would
+fixed at 0.26 ps/A, about 17% above the theoretical peak at 150 K (0.2231 ps/A), so a
+fluctuating bin has room before it reaches the top. Bar heights clamp to the axis
+maximum regardless, since at 64 molecules a single bin can fluctuate past it. Auto-scaling either axis would
 keep the shape constant as the temperature changes and hide the one thing the chart
 exists to show. With fixed axes the area stays constant while the distribution moves:
 the most probable speed is 3.72 A/ps at 150 K, 4.08 at the 180 K default, 5.26 at
 300 K and 6.79 at 500 K, and the peak density falls from 0.2231 to 0.1222 across that
 range. The 18 A/ps upper bound holds 99.7% of the distribution at 500 K and all of it
 below 300 K; speeds beyond it are counted in the last bin rather than dropped, so the
-histogram always integrates to one.
+histogram always integrates to one. Bins hold probability density in ps/A: their sum
+times the 1.5 A/ps bin width is 1.
 
 Bins update by an exponential moving average with a weight of 1/3 per sample. Sampled
 every 200 ms, that is a time constant of about half a second: fast enough to follow the
@@ -52,7 +55,7 @@ at 512 molecules. No new timer, no second readback path.
 ## Modules
 
 - `src/speed-distribution.ts` (new, pure functions, no GPU and no DOM):
-  `SPEED_BINS = 12`, `SPEED_AXIS_MAX = 18`, `DENSITY_AXIS_MAX = 0.2231`,
+  `SPEED_BINS = 12`, `SPEED_AXIS_MAX = 18`, `DENSITY_AXIS_MAX = 0.26`,
   `SMOOTHING = 1 / 3`, `maxwellBoltzmann(speed, temperature)`,
   `mostProbableSpeed(temperature)`, `speedHistogram(state, molecules, out)` writing
   probability density per bin, and `smoothHistogram(current, sample)` applying the
@@ -83,7 +86,8 @@ Node tests for `src/speed-distribution.ts`:
   relative per bin for a large sample, which cross-checks the two functions against
   each other;
 - speeds above `SPEED_AXIS_MAX` land in the last bin and the histogram sums to one;
-- `smoothHistogram` reaches 1 - 1/e of a step change in three samples.
+- `smoothHistogram` closes at least 1 - 1/e of a step change within three samples, and
+  never overshoots it.
 
 Browser tests:
 
