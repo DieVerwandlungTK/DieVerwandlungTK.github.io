@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { BOLTZMANN, FORCE_TO_ACCELERATION, MOLECULE_MASS, OH_LENGTH, principalMoments } from '../../src/water-model';
 
 interface Fixture {
   box: number; cutoff: number; molecules: number;
@@ -13,6 +12,13 @@ async function ready(page: import('@playwright/test').Page) {
   await page.waitForFunction(() => Boolean((window as any).waterSimulation));
 }
 
+/** Worst-case relative error of `actual` against `expected`, scaled by the expected magnitude. */
+function error(actual: number[], expected: number[]): number {
+  const scale = Math.max(...expected.map(Math.abs));
+  const worst = Math.max(...expected.map((value, index) => Math.abs(value - actual[index])));
+  return worst / scale;
+}
+
 test('GPU forces and torques match the Python reference within f32 precision', async ({ page }) => {
   const fixture: Fixture = JSON.parse(await readFile('tests/fixtures/reference-forces-64.json', 'utf8'));
   await ready(page);
@@ -23,11 +29,6 @@ test('GPU forces and torques match the Python reference within f32 precision', a
     const { forces, torques } = await simulation.evaluateForces(new Float32Array(data.sites));
     return { forces: Array.from(forces as Float32Array), torques: Array.from(torques as Float32Array) };
   }, fixture);
-  const error = (actual: number[], expected: number[]) => {
-    const scale = Math.max(...expected.map(Math.abs));
-    const worst = Math.max(...expected.map((value, index) => Math.abs(value - actual[index])));
-    return worst / scale;
-  };
   expect(result.forces.length).toBe(fixture.molecules * 3);
   expect(error(result.forces, fixture.forces)).toBeLessThan(1e-3);
   expect(error(result.torques, fixture.torques)).toBeLessThan(1e-3);
@@ -44,9 +45,11 @@ test('forces and torques are invariant under a whole-system translation across a
   const box = fixture.box;
   const offset = box / 2;
   const translated = fixture.sites.map(value => value + offset);
-  // Count oxygen coordinates that must wrap around the box edge once shifted: the wrapped
-  // oxygen (used for lever arms before the fix) then differs from a naive unwrapped shift by a
-  // whole box vector, exactly the scenario the fix must handle.
+  // Count oxygen coordinates that cross the box edge once shifted, as a proxy for the actual
+  // failure mechanism this test exercises: a molecule's centre of mass landing outside [0, box)
+  // while its oxygen gets wrapped back in, so a lever arm built from the wrapped oxygen would
+  // differ from the unwrapped centre by a whole box vector. A nonzero count here confirms the
+  // fixture actually forces that scenario, before the assertions below check it has no effect.
   let crossings = 0;
   for (let molecule = 0; molecule < fixture.molecules; molecule++) {
     for (const axis of [0, 1, 2]) {
@@ -64,11 +67,7 @@ test('forces and torques are invariant under a whole-system translation across a
     const { forces, torques } = await simulation.evaluateForces(new Float32Array(data.sites));
     return { forces: Array.from(forces as Float32Array), torques: Array.from(torques as Float32Array) };
   }, { molecules: fixture.molecules, sites: translated });
-  const error = (actual: number[], expected: number[]) => {
-    const scale = Math.max(...expected.map(Math.abs));
-    const worst = Math.max(...expected.map((value, index) => Math.abs(value - actual[index])));
-    return worst / scale;
-  };
+  expect(result.forces.length).toBe(fixture.molecules * 3);
   expect(error(result.forces, fixture.forces)).toBeLessThan(1e-3);
   expect(error(result.torques, fixture.torques)).toBeLessThan(1e-3);
 });

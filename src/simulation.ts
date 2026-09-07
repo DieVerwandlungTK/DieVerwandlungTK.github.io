@@ -1,6 +1,6 @@
 import { compute, storage, uniforms, type Gpu } from 'vgpu';
 import shader from './simulation.wgsl?raw';
-import { MASS_H, MASS_O, MOLECULE_MASS, boxLength, cutoffFor, type Vector3 } from './water-model';
+import { MASS_H, MASS_O, MOLECULE_COUNTS, MOLECULE_MASS, boxLength, cutoffFor, type Vector3 } from './water-model';
 import { buildInitialState, chargeSite, moleculeSites, orientationOf,
   type InitialState, type Quaternion } from './initial-state';
 
@@ -83,8 +83,16 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
     return new Float32Array(await buffers.sites.read());
   }
 
-  /** Test path: upload a packed configuration and evaluate forces once, without integrating. */
+  /**
+   * Test-only entry point: uploads a packed configuration and evaluates forces once, without
+   * integrating. The `state`, `sites` and `charges` buffers are restored to whatever they held
+   * before the call once it finishes, so the sample evaluated here is not the sample that keeps
+   * running — the live simulation is left exactly as it was.
+   */
   async function evaluateForces(packed: Float32Array) {
+    if (packed.length !== molecules * 9) throw new Error('Packed configuration does not match the molecule count');
+    const [savedState, savedSites, savedCharges] = await Promise.all(
+      [buffers.state, buffers.sites, buffers.charges].map(async buffer => new Float32Array(await buffer.read())));
     const sites = new Float32Array(molecules * 12);
     const charges = new Float32Array(molecules * 4);
     const state = new Float32Array(molecules * 16);
@@ -121,6 +129,9 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
         torques[molecule * 3 + axis] = raw[molecule * 8 + 4 + axis];
       }
     }
+    buffers.state.write(source(savedState));
+    buffers.sites.write(source(savedSites));
+    buffers.charges.write(source(savedCharges));
     return { forces, torques };
   }
 
@@ -143,6 +154,9 @@ export function createSimulation(gpu: Gpu, options: SimulationOptions) {
       currentBox = box;
     },
     setMolecules(count: number) {
+      if (!(MOLECULE_COUNTS as readonly number[]).includes(count)) {
+        throw new Error(`Unsupported molecule count: ${count}. Expected one of ${MOLECULE_COUNTS.join(', ')}`);
+      }
       molecules = count;
       stepCount = 0;
       buffers = allocate();

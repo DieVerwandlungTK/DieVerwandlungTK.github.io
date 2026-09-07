@@ -4,7 +4,7 @@ import bondShader from './bonds.wgsl?raw';
 import { ATOM_STRIDE, BOND_STRIDE, createScene } from './scene';
 import { boxLength } from './water-model';
 
-/** Temperature is reported in the panel now, so the shaders' tint stays constant. */
+/** Nothing tints by temperature yet, so the shaders' warmth uniform is fed a constant. */
 const WARMTH = 0;
 
 export async function createBackground(gpu: Gpu, canvas: HTMLCanvasElement,
