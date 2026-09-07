@@ -1694,13 +1694,16 @@ git commit -m "Add the BAOAB rigid-body integrator with a Langevin thermostat"
 
 **Files:**
 - Modify: `src/simulation.wgsl` (append the `reduce` entry point)
-- Modify: `src/simulation.ts` (add `readStats` and `needsRestart`)
+- Create: `src/simulation-health.ts` (`SimulationStats`, `FORCE_LIMIT`, `needsRestart`)
+- Modify: `src/simulation.ts` (add `readStats`, re-export the health module)
 - Modify: `tests/browser/simulation.spec.ts` (append one test)
 - Create: `tests/simulation-guard.test.ts`
 
 **Interfaces:**
 - Consumes: the state buffer and constants from Tasks 5 and 6.
-- Produces: `readStats(): Promise<SimulationStats>`; `needsRestart(stats: SimulationStats): boolean` exported from `src/simulation.ts` and true when `nonFinite` is set or `maximumForce` exceeds `FORCE_LIMIT = 5e4` kJ/mol/Å.
+- Produces: `readStats(): Promise<SimulationStats>` on the simulation object; `SimulationStats`, `FORCE_LIMIT = 5e4` kJ/mol/Å and `needsRestart(stats): boolean` (true when `nonFinite` is set, `maximumForce` is not finite, or it exceeds `FORCE_LIMIT`) from `src/simulation-health.ts`, re-exported by `src/simulation.ts` so callers can import either.
+
+  The guard lives in its own module because `src/simulation.ts` imports the shader as `./simulation.wgsl?raw`, which is Vite-only syntax that node's loader rejects — a node unit test cannot import that file at all. `src/simulation-health.ts` has no imports, so `tests/simulation-guard.test.ts` can exercise the predicate without a GPU.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1709,7 +1712,7 @@ Create `tests/simulation-guard.test.ts`:
 ```typescript
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FORCE_LIMIT, needsRestart } from '../src/simulation.ts';
+import { FORCE_LIMIT, needsRestart } from '../src/simulation-health.ts';
 
 const stats = (overrides: Partial<Parameters<typeof needsRestart>[0]> = {}) => ({
   translationalTemperature: 300, rotationalTemperature: 300, maximumForce: 900, nonFinite: false, ...overrides,
@@ -1836,15 +1839,26 @@ Add `reduceKernel.set(bag);` inside `bind()`, add `readStats` to the returned ob
   }
 ```
 
-At module scope, next to the interfaces:
+Create `src/simulation-health.ts` — no imports, so node can load it:
 
 ```typescript
+export interface SimulationStats {
+  translationalTemperature: number;
+  rotationalTemperature: number;
+  maximumForce: number;
+  nonFinite: boolean;
+}
+
 /** Forces above this mean the f32 integration has diverged, not that water is hot. */
 export const FORCE_LIMIT = 5e4;
 
 export const needsRestart = (stats: SimulationStats): boolean =>
   stats.nonFinite || !Number.isFinite(stats.maximumForce) || stats.maximumForce > FORCE_LIMIT;
 ```
+
+In `src/simulation.ts`, drop the local `SimulationStats` declaration and instead
+`import { needsRestart, type SimulationStats } from './simulation-health';`, then re-export
+both alongside `FORCE_LIMIT` so `src/main.ts` can keep importing them from `./simulation`.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 

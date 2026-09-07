@@ -175,3 +175,24 @@ test('the sample never acquires a net drift', async ({ page }) => {
   }
   expect(Number.isFinite(translational)).toBe(true);
 });
+
+test('the reduction kernel reports the same temperatures as the raw state', async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const simulation = (window as any).waterSimulation;
+    simulation.setMolecules(216);
+    simulation.setTemperature(320);
+    for (let batch = 0; batch < 10; batch++) simulation.step(100);
+    const stats = await simulation.readStats();
+    const state = Array.from(await simulation.readState() as Float32Array);
+    return { stats, state, molecules: simulation.molecules };
+  });
+  const expected = temperatures(result.state, result.molecules);
+  expect(result.stats.translationalTemperature).toBeGreaterThan(expected.translational - 1);
+  expect(result.stats.translationalTemperature).toBeLessThan(expected.translational + 1);
+  expect(result.stats.rotationalTemperature).toBeGreaterThan(expected.rotational - 1);
+  expect(result.stats.rotationalTemperature).toBeLessThan(expected.rotational + 1);
+  expect(result.stats.nonFinite).toBe(false);
+  expect(result.stats.maximumForce).toBeGreaterThan(0);
+  expect(result.stats.maximumForce).toBeLessThan(50000);
+});
