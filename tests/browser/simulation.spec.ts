@@ -9,7 +9,7 @@ interface Fixture {
 }
 
 async function ready(page: import('@playwright/test').Page) {
-  await page.goto('/');
+  await page.goto('/playground.html');
   await expect(page.locator('.molecular-stage')).toHaveClass(/ready/, { timeout: 20000 });
   await page.waitForFunction(() => Boolean((window as any).waterSimulation));
   // The panel drives its own render loop over this same simulation, so pause it: otherwise the

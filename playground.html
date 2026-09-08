@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f5f8fa" />
+  <meta name="description" content="水分子の動きと水素結合を観察する、個人のシミュレーション実験。" />
+  <title>Playground — Your Name</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+</head>
+<body class="playground-page">
+  <a class="skip-link" href="#playground-title">本文へスキップ</a>
+  <header class="site-header wrap">
+    <a class="wordmark" href="./index.html#top" aria-label="トップへ"><span class="mark" aria-hidden="true">y<span>n</span></span><span>Your Name<span class="wordmark-sub">RESEARCH &amp; NOTES</span></span></a>
+    <nav aria-label="メインナビゲーション">
+      <a href="./index.html#about">About</a><a href="./index.html#research">Research</a><a href="./index.html#publications">Publications</a><a href="./index.html#presentations">Presentations</a><a href="./index.html#links">Links <span aria-hidden="true">↗</span></a>
+      <a href="./playground.html" aria-current="page">Playground</a>
+    </nav>
+  </header>
+
+  <main id="top" class="wrap">
+    <div class="playground-intro">
+      <p class="eyebrow">PLAYGROUND / 01</p>
+      <h1 id="playground-title">Water simulation</h1>
+      <p>水分子の動きと水素結合を眺める、個人の実験スペースです。<br />温度や密度を変えて、ふるまいの違いを観察できます。</p>
+      <a class="primary-link" href="./index.html">ホームページへ戻る ↗</a>
+    </div>
+    <section class="simulation-workspace" aria-label="水分子シミュレーション">
+      <div class="molecular-stage" aria-hidden="true">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <span class="stage-label">MOLECULAR PERSPECTIVES</span>
+        <img id="static-molecules" src="./molecules.svg" alt="" />
+        <canvas id="molecule-canvas"></canvas>
+      </div>
+
+      <aside class="simulation-panel" aria-label="水の分子動力学計算">
+        <div class="simulation-heading"><span class="small-label">WATER / <span id="phase-label">ICE Ic</span></span><span class="model-tag">TIP4P-Ew</span></div>
+        <div class="simulation-readout"><span><strong id="temperature">180</strong><span class="unit"> K</span></span><span class="simulation-caption">実測 <span id="kinetic-temperature">180 K</span><span id="sim-time">0.0 ps</span><span id="playback-status" role="status">静止画を表示中</span></span></div>
+        <div class="control-row">
+          <label for="temperature-input">温度</label>
+          <input id="temperature-input" type="range" min="150" max="500" step="5" value="180" disabled />
+        </div>
+        <div class="control-row">
+          <label for="density-input">密度</label>
+          <input id="density-input" type="range" min="60" max="140" step="5" value="100" disabled />
+          <span class="control-value"><span id="density-ratio">1.00</span> · <span id="box-length">19.0 Å</span></span>
+        </div>
+        <div class="playback-controls">
+          <button id="play-pause" type="button" disabled aria-label="計算を一時停止">停止</button>
+          <label class="sr-only" for="molecules">分子数</label>
+          <select id="molecules" disabled><option value="64">64</option><option value="216" selected>216</option><option value="512">512</option></select>
+          <label class="sr-only" for="rate">計算速度</label>
+          <select id="rate" disabled><option value="2">0.5×</option><option value="8" selected>1×</option><option value="16">2×</option><option value="32">4×</option></select>
+          <button id="reset" type="button" disabled aria-label="氷から再開">↺</button>
+        </div>
+        <div class="simulation-metrics"><span>水素結合 <strong id="bond-count">0</strong></span><span id="throughput">0.0 ps/s</span></div>
+        <figure class="speed-distribution-panel" hidden>
+          <figcaption>並進速度分布 <span><i class="histogram-key" aria-hidden="true"></i>実測 <i class="curve-key" aria-hidden="true"></i>Maxwell–Boltzmann</span></figcaption>
+          <div id="speed-distribution" hidden></div>
+          <p>熱浴による正準サンプリングの確認です。曲線との一致は、水の相互作用を検証するものではありません。</p>
+        </figure>
+        <p class="simulation-caveats">近似: 長距離静電相互作用はPMEではなく反応場カットオフ、計算はf32単精度、摩擦5 ps⁻¹のLangevin熱浴で動力学は減衰しています。<strong>冷却しても氷には戻りません</strong>（↺は氷Icからの再開です）。</p>
+        <details class="simulation-details"><summary>この計算について <span class="details-marker" aria-hidden="true"></span></summary><p>剛体TIP4P-Ew水をブラウザのWebGPUで実時間計算しています。酸素と2つの水素を描き、電荷サイトは描画していません。実線は拘束された分子内O-H結合、破線は幾何学的に判定した水素結合（O···O ≤ 3.5 Å、O-H···O ≥ 150°）です。温度スライダーはサーモスタットの設定値で、実測値は瞬間の運動温度です。冷却しても氷に戻らないのは、この規模・時間スケールでは結晶核形成が起こらず、試料が非晶質に固まるためです。表示は周期境界のバルク水を球状に切り出した窓で、液滴や表面ではありません。</p><p><a href="https://doi.org/10.1063/1.1683075" target="_blank" rel="noopener noreferrer">水モデルの原論文 ↗</a> · <a href="./data/ice-216.bin" download>初期配置 ↓</a></p></details>
+      </aside>
+    </section>
+  </main>
+  <footer class="site-footer wrap"><span>© <span id="year">2026</span> Your Name</span><a href="./index.html">Home ↗</a></footer>
+  <script type="module" src="/src/playground.ts"></script>
+</body>
+</html>

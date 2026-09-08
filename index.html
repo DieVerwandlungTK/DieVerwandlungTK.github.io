@@ -8,12 +8,13 @@
   <title>Your Name — Research &amp; Notes</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
 </head>
-<body>
+<body class="homepage">
   <a class="skip-link" href="#about">本文へスキップ</a>
   <header class="site-header wrap">
     <a class="wordmark" href="#top" aria-label="トップへ"><span class="mark" aria-hidden="true">y<span>n</span></span><span>Your Name<span class="wordmark-sub">RESEARCH &amp; NOTES</span></span></a>
     <nav aria-label="メインナビゲーション">
       <a href="#about">About</a><a href="#research">Research</a><a href="#publications">Publications</a><a href="#presentations">Presentations</a><a href="#links">Links <span aria-hidden="true">↗</span></a>
+      <a href="./playground.html">Playground</a>
     </nav>
   </header>
 
@@ -22,64 +23,28 @@
       <div class="hero-copy">
         <p class="eyebrow"><span class="status-dot"></span> A PERSONAL RESEARCH WEBSITE</p>
         <h1 id="hero-title">Your Name<span class="name-ja">氏名をここに</span></h1>
-        <p class="hero-statement">小さな分子から、<br />大きな問いへ。</p>
-        <p class="hero-description">水の構造とダイナミクス、そして相転移。<br />分子のふるまいを通して、物質の不思議を探ります。</p>
+        <p class="hero-statement">言語の生成を、<br />拡散から考える。</p>
+        <p class="hero-description">拡散言語モデルについて研究しています。<br />研究テーマや活動の記録を、このページにまとめていきます。</p>
         <p class="placeholder-note">紹介文はサンプルです。ご自身の研究内容に変更できます。</p>
         <a class="primary-link" href="#research">研究について <span aria-hidden="true">↗</span></a>
         <div class="affiliation"><span class="small-label">AFFILIATION</span><span>大学名・研究科・専攻<br /><span class="muted">職位・学年</span></span></div>
       </div>
 
-      <div class="molecular-stage" aria-hidden="true">
-        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
-        <span class="stage-label">MOLECULAR PERSPECTIVES</span>
-        <img id="static-molecules" src="./molecules.svg" alt="" />
-        <canvas id="molecule-canvas"></canvas>
-      </div>
-
-      <aside class="simulation-panel" aria-label="水の分子動力学計算">
-        <div class="simulation-heading"><span class="small-label">WATER / <span id="phase-label">ICE Ic</span></span><span class="model-tag">TIP4P-Ew</span></div>
-        <div class="simulation-readout"><span><strong id="temperature">180</strong><span class="unit"> K</span></span><span class="simulation-caption">実測 <span id="kinetic-temperature">180 K</span><span id="sim-time">0.0 ps</span><span id="playback-status" role="status">静止画を表示中</span></span></div>
-        <div class="control-row">
-          <label for="temperature-input">温度</label>
-          <input id="temperature-input" type="range" min="150" max="500" step="5" value="180" disabled />
-        </div>
-        <div class="control-row">
-          <label for="density-input">密度</label>
-          <input id="density-input" type="range" min="60" max="140" step="5" value="100" disabled />
-          <span class="control-value"><span id="density-ratio">1.00</span> · <span id="box-length">19.0 Å</span></span>
-        </div>
-        <div class="playback-controls">
-          <button id="play-pause" type="button" disabled aria-label="計算を一時停止">停止</button>
-          <label class="sr-only" for="molecules">分子数</label>
-          <select id="molecules" disabled><option value="64">64</option><option value="216" selected>216</option><option value="512">512</option></select>
-          <label class="sr-only" for="rate">計算速度</label>
-          <select id="rate" disabled><option value="2">0.5×</option><option value="8" selected>1×</option><option value="16">2×</option><option value="32">4×</option></select>
-          <button id="reset" type="button" disabled aria-label="氷から再開">↺</button>
-        </div>
-        <div class="simulation-metrics"><span>水素結合 <strong id="bond-count">0</strong></span><span id="throughput">0.0 ps/s</span></div>
-        <figure class="speed-distribution-panel" hidden>
-          <figcaption>並進速度分布 <span><i class="histogram-key" aria-hidden="true"></i>実測 <i class="curve-key" aria-hidden="true"></i>Maxwell–Boltzmann</span></figcaption>
-          <div id="speed-distribution" hidden></div>
-          <p>熱浴による正準サンプリングの確認です。曲線との一致は、水の相互作用を検証するものではありません。</p>
-        </figure>
-        <p class="simulation-caveats">近似: 長距離静電相互作用はPMEではなく反応場カットオフ、計算はf32単精度、摩擦5 ps⁻¹のLangevin熱浴で動力学は減衰しています。<strong>冷却しても氷には戻りません</strong>（↺は氷Icからの再開です）。</p>
-        <details class="simulation-details"><summary>この計算について <span class="details-marker" aria-hidden="true"></span></summary><p>剛体TIP4P-Ew水をブラウザのWebGPUで実時間計算しています。酸素と2つの水素を描き、電荷サイトは描画していません。実線は拘束された分子内O-H結合、破線は幾何学的に判定した水素結合（O···O ≤ 3.5 Å、O-H···O ≥ 150°）です。温度スライダーはサーモスタットの設定値で、実測値は瞬間の運動温度です。冷却しても氷に戻らないのは、この規模・時間スケールでは結晶核形成が起こらず、試料が非晶質に固まるためです。表示は周期境界のバルク水を球状に切り出した窓で、液滴や表面ではありません。</p><p><a href="https://doi.org/10.1063/1.1683075" target="_blank" rel="noopener noreferrer">水モデルの原論文 ↗</a> · <a href="./data/ice-216.bin" download>初期配置 ↓</a></p></details>
-      </aside>
       <a href="#about" class="scroll-cue"><span>SCROLL TO EXPLORE</span><span aria-hidden="true">↓</span></a>
     </section>
 
     <div class="content-area">
       <section id="about" class="section wrap" aria-labelledby="about-title">
         <div class="section-heading"><span class="section-number">01 /</span><h2 id="about-title">About<span>自己紹介</span></h2></div>
-        <div class="about-content"><p class="large-copy">分子の世界にある、<br class="mobile-break" />まだ知らないつながりを。</p><p>［自己紹介文］所属、これまでの経歴、研究への関心などをここに記載します。どのような問いに向き合い、どのような手法で研究しているのかを、簡潔に紹介するスペースです。</p><dl class="profile-facts"><div><dt>所属</dt><dd>［大学名・研究科・研究室］</dd></div><div><dt>研究分野</dt><dd>［専門分野・研究キーワード］</dd></div><div><dt>拠点</dt><dd>［都市・国］</dd></div></dl></div>
+        <div class="about-content"><p class="large-copy">言語と生成モデルへの関心から。</p><p>［自己紹介文］所属、これまでの経歴、研究への関心などをここに記載します。どのような問いに向き合い、どのような手法で研究しているのかを、簡潔に紹介するスペースです。</p><dl class="profile-facts"><div><dt>所属</dt><dd>［大学名・研究科・研究室］</dd></div><div><dt>研究分野</dt><dd>［専門分野・研究キーワード］</dd></div><div><dt>拠点</dt><dd>［都市・国］</dd></div></dl></div>
       </section>
 
       <section id="research" class="section wrap research-section" aria-labelledby="research-title">
         <div class="section-heading"><span class="section-number">02 /</span><h2 id="research-title">Research<span>研究紹介</span></h2></div>
         <div class="section-body"><p class="section-intro">研究テーマと、その先にある問い。<span class="placeholder-pill">サンプルテーマ</span></p>
           <div class="research-grid">
-            <article class="research-card"><div class="research-icon lattice-icon" aria-hidden="true">⠿</div><span class="small-label">01 — PHASE TRANSITIONS</span><h3>相転移と構造</h3><p>［研究概要］水や氷の構造が変化する仕組み、相転移に関する研究の背景と目的を記載します。</p><div class="tags"><span>Water &amp; Ice</span><span>Structure</span></div></article>
-            <article class="research-card"><div class="research-icon wave-icon" aria-hidden="true">∿</div><span class="small-label">02 — MOLECULAR DYNAMICS</span><h3>分子のダイナミクス</h3><p>［研究概要］分子シミュレーションや解析手法、それらを用いて明らかにしたい問いを記載します。</p><div class="tags"><span>Simulation</span><span>Dynamics</span></div></article>
+            <article class="research-card"><div class="research-icon lattice-icon" aria-hidden="true">⠿</div><span class="small-label">01 — DIFFUSION LANGUAGE MODELS</span><h3>拡散言語モデル</h3><p>［研究概要］拡散言語モデルに関する研究の背景、取り組んでいる問いと目的を記載します。</p><div class="tags"><span>Diffusion</span><span>Language Models</span></div></article>
+            <article class="research-card"><div class="research-icon wave-icon" aria-hidden="true">∿</div><span class="small-label">02 — RESEARCH TOPIC</span><h3>研究テーマをここに</h3><p>［研究概要］関連する研究テーマ、用いる手法や評価方法を記載します。</p><div class="tags"><span>［キーワード］</span></div></article>
           </div>
         </div>
       </section>
@@ -100,7 +65,7 @@
       </section>
     </div>
   </main>
-  <footer class="site-footer wrap"><span>© <span id="year">2026</span> Your Name</span><span>A little curiosity, molecule by molecule.</span><a href="#top">Back to top ↑</a></footer>
+  <footer class="site-footer wrap"><span>© <span id="year">2026</span> Your Name</span><span>Research &amp; Notes.</span><a href="#top">Back to top ↑</a></footer>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
