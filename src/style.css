@@ -24,3 +24,13 @@
   .simulation-panel{position:relative;right:auto;bottom:auto;margin:0;width:100%}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important}}
+
+/* The homepage keeps the focus on the research profile. */
+.homepage .hero { min-height: 0; padding-top: 64px; padding-bottom: 80px; }
+.homepage .hero-copy { width: 100%; max-width: 740px; }
+.homepage .scroll-cue { position: static; display: flex; margin-top: 48px; }
+.site-header nav { flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .homepage .hero { padding-top: 40px; padding-bottom: 48px; }
+  .site-header nav { justify-content: flex-start; gap: 12px 20px; }
+}

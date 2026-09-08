@@ -1,0 +1,17 @@
+.playground-intro { padding: 48px 0 36px; }
+.playground-intro h1 { font-size: clamp(32px, 5vw, 52px); font-weight: 400; margin: 14px 0 20px; }
+.playground-intro > p:not(.eyebrow) { color: var(--muted); line-height: 1.9; }
+.playground-intro .primary-link { margin-top: 14px; }
+.simulation-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; align-items: start; margin-bottom: 64px; }
+.simulation-workspace .molecular-stage { position: relative; inset: auto; width: 100%; height: 540px; margin: 0; }
+.simulation-workspace .simulation-panel { position: relative; inset: auto; width: 100%; margin: 0; padding: 20px; border: 1px solid #dce5e9; border-radius: 12px; }
+.site-header a[aria-current="page"] { color: #267681; }
+@media (max-width: 900px) {
+  .simulation-workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .simulation-workspace .molecular-stage { height: 400px; }
+}
+@media (max-width: 720px) {
+  .playground-intro { padding-top: 28px; }
+  .simulation-workspace .molecular-stage { height: 300px; }
+  .simulation-workspace .simulation-panel { padding: 14px; }
+}

@@ -1,7 +1,7 @@
 # Research homepage
 
 自己紹介・研究紹介・Publications・Presentations・Links を持つ静的サイトです。
-背景は **vgpu 0.4.0 / WebGPU** で、剛体TIP4P-Ew水分子動力学をブラウザ上でリアルタイムに計算・描画します。
+別ページの [Playground](playground.html) は **vgpu 0.4.0 / WebGPU** で、剛体TIP4P-Ew水分子動力学をブラウザ上でリアルタイムに計算・描画します。
 録画済みの軌跡を再生しているのではありません。酸素と水素を描き、温度・密度・分子数・計算速度を
 訪問者が操作でき、水素結合の生成と切断が見えます。
 個人情報・業績・リンクは placeholder です。
@@ -16,6 +16,7 @@ npm run dev
 ```
 
 表示される localhost のURLをブラウザで開きます。
+トップページではシミュレーションを読み込まず、ナビゲーションの Playground から実験ページへ移動できます。
 WebGPU非対応・初期化失敗・データ取得失敗時も、本文と静止画が表示されます。
 動きを減らすOS設定では自動計算を開始しません。再開ボタンで明示的に開始できます。
 計算は氷Icの初期配置から継続的に進み、あらかじめ決まった長さや終了時刻はありません。
@@ -43,7 +44,9 @@ WebGPUが使える環境が必要です（Chromiumの通常ヘッドレスモー
 ## 編集する場所
 
 - `index.html`: 氏名、所属、紹介文、研究内容、論文、学会発表、リンク、ページタイトル。
-- `src/style.css`: 色、レイアウト、文字サイズ。
+- `src/style.css`: ホームページと共通の色、レイアウト、文字サイズ。
+- `playground.html` / `src/playground.css`: 実験ページの説明、操作パネル、レイアウト。
+- `src/playground.ts`: 実験ページの起動・操作。計算と描画は独立したモジュールに保ち、将来の配置変更にも再利用できます。
 - `src/speed-distribution.ts` / `src/distribution-chart.ts`: 並進速度の集計・理論分布・SVGグラフ。
 - `src/background.ts` / `src/scene.ts`: 分子の配置・投影・結合判定。
 - `src/simulation.ts` / `src/simulation.wgsl`: ブラウザ上で動くTIP4P-Ew剛体水の力場と積分。
@@ -68,7 +71,6 @@ serif/sans-serifフォントに切り替わります。
 
 Viteは `base: './'` でビルドするため、`https://USERNAME.github.io/REPOSITORY/`
 のようなサブディレクトリにも対応します。Pythonはサイトのビルドに不要です。
-この作業環境にはGitHubリモートが未設定のため、公開はまだ行っていません。
 
 ## サンプル計算の内容と再生成
 

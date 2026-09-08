@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const ready = async (page: Page) => {
-  await page.goto('/');
+  await page.goto('/playground.html');
   await expect(page.locator('#speed-distribution')).toBeVisible({ timeout: 20000 });
 };
 const center = (page: Page) => page.locator('.distribution-bar').evaluateAll(bars => {
@@ -74,7 +74,7 @@ test('the chart fits a 375 px viewport without horizontal overflow', async ({ pa
   const bounds = await page.locator('#speed-distribution svg').boundingBox();
   expect(bounds!.width).toBeGreaterThan(200);
   expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(375);
-  const copy = await page.locator('.hero-copy').boundingBox();
+  const copy = await page.locator('.playground-intro').boundingBox();
   const panel = await page.locator('.simulation-panel').boundingBox();
   expect(panel!.y).toBeGreaterThan(copy!.y+copy!.height);
   await page.screenshot({ path:'test-results/distribution-mobile.png',fullPage:true });
