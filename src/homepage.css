@@ -1,0 +1,57 @@
+.homepage {
+  --accent: #6656ac;
+  --ink: #262e45;
+  --muted: #73798b;
+  --line: #e0e1e9;
+  color: var(--ink);
+  background: #f8f8fc;
+}
+.homepage .mark { border-color: #cecadf; border-radius: 9px; }
+.homepage .hero { display: block; padding-top: 76px; padding-bottom: 64px; }
+.homepage .hero-copy { width: 100%; min-width: 0; }
+.homepage .eyebrow { color: var(--accent); font-size: 9px; letter-spacing: .12em; }
+.homepage h1 { font-size: clamp(54px, 5.6vw, 78px); max-width: 900px; line-height: 1.09; margin-bottom: 29px; }
+.homepage .hero-description { max-width: 620px; font-size: 13px; line-height: 2.2; color: #656d80; }
+.homepage .primary-link { border-color: #aaa1ca; }
+.homepage .affiliation { margin-top: 34px; }
+.homepage .scroll-cue { margin-top: 48px; }
+.homepage .content-area { background: #fdfdfe; }
+.homepage .research-card { background: #f7f6fb; border-color: #e9e5f0; border-radius: 4px; }
+.homepage .research-icon { color: #8978ad; }
+.homepage .research-card .small-label, .homepage .tags span { color: #7a6a93; }
+.homepage .tags span { border-color: #d9d2e5; }
+/* Keep each original text run in the layout and accessibility tree. */
+.text-diffusion-token { position: relative; color: transparent; }
+.text-diffusion-noise {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #88759f;
+  pointer-events: none;
+  text-align: center;
+}
+.text-diffusion-noise::after { content: attr(data-noise); }
+main[data-diffusion="mask"] .text-diffusion-noise {
+  inset: .18em 0 .1em;
+  background: #cec4df;
+  color: transparent;
+  border-radius: 2px;
+}
+.diffusion-replay {
+  margin-top: 24px;
+  padding: 8px 0;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+}
+.diffusion-replay span { margin-left: 8px; }
+.diffusion-replay:hover { text-decoration: underline; }
+@media (max-width: 720px) {
+  .homepage .hero { padding-top: 42px; padding-bottom: 48px; }
+  .homepage h1 { font-size: clamp(49px, 12vw, 66px); }
+  .homepage .hero-description { font-size: 12px; }
+  .homepage .eyebrow { font-size: 8px; }
+}
