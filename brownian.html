@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f5f8fa" />
+  <meta name="description" content="温度と数密度を変えて、粒子の衝突によるブラウン運動と SDE の統計を比較する実験。" />
+  <title>Brownian motion &amp; SDE — Playground</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+</head>
+<body class="playground-page brownian-page">
+  <a class="skip-link" href="#playground-title">本文へスキップ</a>
+  <header class="site-header wrap">
+    <a class="wordmark" href="./index.html#top" aria-label="トップへ"><span class="mark" aria-hidden="true">t<span>k</span></span><span>Takato Kinoshita<span class="wordmark-sub">RESEARCH &amp; NOTES</span></span></a>
+    <nav aria-label="メインナビゲーション">
+      <a href="./index.html#about">About</a><a href="./index.html#research">Research</a><a href="./index.html#publications">Publications</a><a href="./index.html#presentations">Presentations</a><a href="./index.html#links">Links <span aria-hidden="true">↗</span></a>
+      <a href="./playground.html" aria-current="page">Playground</a>
+    </nav>
+  </header>
+
+
+  <main class="wrap">
+    <div class="playground-intro">
+      <p class="eyebrow">PLAYGROUND / 02</p>
+      <h1 id="playground-title">Brownian motion &amp; SDE</h1>
+      <p>粒子の衝突を、確率的な運動へ。<br />同じ温度・数密度で、微視的な運動と粗視化したモデルを比べます。</p>
+      <nav class="experiment-nav" aria-label="実験を選ぶ"><a href="./playground.html">水分子と相転移</a><a href="./brownian.html" aria-current="page">ブラウン運動と SDE</a></nav>
+    </div>
+    <section class="brownian-controls" aria-label="共通の実験条件">
+      <div class="condition"><label for="brownian-temperature">温度 T <output id="temperature-value">1.0</output></label><input id="brownian-temperature" type="range" min="0.5" max="3" step="0.1" value="1" /></div>
+      <div class="condition"><label for="brownian-density">数密度 ρ <output id="density-value">0.60</output></label><input id="brownian-density" type="range" min="0.2" max="1" step="0.05" value="0.6" /></div>
+      <div class="brownian-actions"><button id="toggle-run" type="button">再生</button><button id="reset-run" type="button">初めから</button><label for="brownian-rate" class="sr-only">再生速度</label><select id="brownian-rate"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+      <p class="conditions-note">無次元単位（kB = 1）。条件を変えると、推定からやり直します。再生速度は数値積分の刻み幅を変えません。</p>
+    </section>
+    <div class="run-progress"><span id="run-status" role="status">一時停止中</span><span><strong id="phase">準備運転</strong> · t = <span id="run-time">0.0</span> / <span id="phase-duration">20</span></span><progress id="phase-progress" max="20" value="0" aria-label="現在の区間の進捗"></progress></div>
+    <div class="comparison-grid">
+      <section class="experiment-card"><div class="card-heading"><h2><span class="series-dot gas-dot"></span>粒子の衝突</h2><span>EXPLICIT BATH</span></div><canvas id="gas-canvas" width="540" height="330" role="img" aria-label="小粒子と追跡粒子の衝突。比較区間では追跡粒子の軌跡を表示"></canvas><p>小粒子64個と重い追跡粒子1個。代表1試行を表示。<br />周期境界で描画し、変位の集計は境界をまたいで連続です。</p></section>
+      <section class="experiment-card"><div class="card-heading"><h2><span class="series-dot sde-dot"></span>SDE</h2><span>OVERDAMPED</span></div><canvas id="sde-canvas" width="540" height="330" role="img" aria-label="推定した拡散係数を用いる SDE の代表軌跡"></canvas><p>同じ長さ・時間スケールの代表1試行。<br />係数の推定が終わると、独立した乱数で比較を始めます。</p></section>
+    </div>
+    <section class="coefficient-panel" aria-label="SDE への対応">
+      <div><span class="small-label">温度・数密度 → 推定 → SDE</span><p class="equation">dX = √(2D) dW</p><p>温度は小粒子の速度、数密度は箱の面積に反映。衝突の結果から D(T, ρ) を推定します。</p></div>
+      <dl><div><dt>拡散係数 D</dt><dd id="diffusion-value">未推定</dd></div><div><dt>有効摩擦 γ = T / D</dt><dd id="friction-value">—</dd></div><div><dt>ノイズ係数 √(2D)</dt><dd id="noise-value">—</dd></div></dl>
+    </section>
+    <div class="comparison-grid statistics-grid">
+      <section class="experiment-card"><div class="card-heading"><h2>平均二乗変位</h2><span>MSD</span></div><div class="chart-legend"><span class="gas-key">粒子</span><span class="sde-key">SDE</span><span class="theory-key">4Dt</span></div><svg id="msd-chart" viewBox="0 0 540 280" role="img" aria-label="平均二乗変位と経過時間のグラフ"></svg><p id="msd-caption">準備運転の後、推定区間の MSD を表示します。</p></section>
+      <section class="experiment-card"><div class="card-heading"><h2>変位の分布</h2><span>Δx</span></div><div class="chart-legend"><span class="gas-key">粒子</span><span class="sde-key">SDE</span></div><svg id="histogram-chart" viewBox="0 0 540 280" role="img" aria-label="同じ経過時間での x 方向変位の確率密度"></svg><p>比較区間の同じ経過時間における、独立64試行の分布。MSD も同じ64試行の平均です。</p></section>
+    </div>
+    <section class="experiment-method">
+      <h2>何を比較しているか</h2>
+      <p>準備運転20 → 推定80 → 比較60の順で進みます。推定区間の後半（t = 40–80）の MSD を切片付き直線で近似し、傾きの1/4を D とします。比較開始時に変位の原点を取り直し、D を固定します。比較区間が終わると自動停止します。</p>
+      <p><strong>これは有限時間・有限試行数の推定です。</strong>拡散領域に達した保証や信頼区間はありません。長時間の広がりを合わせるための調整なので、一致だけでモデルを検証したことにはなりません。短時間の慣性や分布の違いも観察してください。γ = T / D は推定 D からの換算で、独立に測った摩擦ではありません。</p>
+      <details><summary>粒子モデル・単位・計算方法</summary><p>2次元の理想気体浴です。小粒子同士は相互作用せず、追跡粒子とのみ弾性衝突します。小粒子の質量1・半径0.12、追跡粒子の質量8・半径0.6。ρ = 64 / L² により周期境界の正方形の一辺 L を決めます。水の密度やケルビン温度への換算はしていません。</p><p>初期速度はガウス分布から生成し、全運動量を除去して運動エネルギーを設定温度に合わせます。その後は熱浴による確率的な力を加えず、有限粒子系の運動を計算します。刻み幅 Δt = 0.01 の衝突判定・重なり補正を使う近似で、厳密な衝突時刻を求める方法ではありません。有限サイズ、浴の再衝突、刻み幅の影響があります。</p><p>SDE は慣性を無視した自由拡散で、各座標に独立な正規乱数 √(2DΔt) ξ を加えます。この定数係数モデルでは格子時刻間の増分を正確に生成できます。乱数種は固定し、「初めから」で同じ条件の結果を再現できます。</p><p><a href="https://docs.lammps.org/stable/Howto_diffusion.html" target="_blank" rel="noopener noreferrer">MSD からの拡散係数推定 ↗</a> · <a href="https://docs.lammps.org/fix_viscous.html" target="_blank" rel="noopener noreferrer">摩擦と拡散係数の関係 ↗</a></p></details>
+      <button id="download-data" type="button" disabled>データを保存</button><span class="download-note">条件・推定区間・比較区間を JSON で保存</span>
+    </section>
+  </main>
+  <footer class="site-footer wrap"><span>© <span id="year">2026</span> Takato Kinoshita</span><a href="./index.html">Home ↗</a></footer>
+  <script type="module" src="/src/brownian.ts"></script>
+</body>
+</html>
