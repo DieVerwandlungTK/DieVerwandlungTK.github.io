@@ -1,0 +1,72 @@
+import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+
+test('separate experiment works without WebGPU, pauses and resets on condition changes', async ({page}) => {
+  await page.addInitScript(()=>Object.defineProperty(navigator,'gpu',{value:undefined}));
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.goto('/playground.html');
+  await page.getByRole('link',{name:'ブラウン運動と SDE'}).click();
+  await expect(page.getByRole('heading',{name:'Brownian motion & SDE'})).toBeVisible();
+  await expect(page.locator('#run-time')).toHaveText('0.0');
+  await expect(page.locator('#run-status')).toContainText('一時停止');
+  await page.getByRole('button',{name:'再生',exact:true}).click();
+  await expect.poll(()=>page.locator('#run-time').textContent()).not.toBe('0.0');
+  await page.getByRole('button',{name:'一時停止',exact:true}).click();
+  const time=await page.locator('#run-time').textContent();
+  await page.waitForTimeout(250);
+  await expect(page.locator('#run-time')).toHaveText(time!);
+  await page.getByLabel('温度 T').fill('2');
+  await expect(page.locator('#temperature-value')).toHaveText('2.0');
+  await expect(page.locator('#run-time')).toHaveText('0.0');
+  await expect(page.locator('#diffusion-value')).toHaveText('未推定');
+  await page.getByLabel('数密度 ρ').fill('0.8');
+  await expect(page.locator('#density-value')).toHaveText('0.80');
+  await page.getByRole('button',{name:'初めから'}).click();
+  await expect(page.locator('#run-time')).toHaveText('0.0');
+});
+
+test('calibration produces frozen D, comparison curves and a downloadable dataset', async ({page}) => {
+  test.setTimeout(90000);
+  const errors:string[]=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/brownian.html');
+  await page.getByLabel('再生速度').selectOption('4');
+  await expect(page.locator('#phase')).toHaveText('比較',{timeout:60000});
+  const diffusion=await page.locator('#diffusion-value').textContent();
+  expect(Number(diffusion)).toBeGreaterThan(0);
+  await expect.poll(async()=>Number(await page.locator('#run-time').textContent())).toBeGreaterThan(2);
+  await page.getByRole('button',{name:'一時停止',exact:true}).click();
+  await expect(page.locator('#diffusion-value')).toHaveText(diffusion!);
+  await expect(page.locator('#msd-chart path[data-series="gas"]')).toHaveAttribute('d',/L/);
+  await expect(page.locator('#histogram-chart rect[data-series="sde"]')).not.toHaveCount(0);
+  const downloadPromise=page.waitForEvent('download');
+  await page.getByRole('button',{name:'データを保存'}).click();
+  const download=await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/brownian.*json/);
+  const data=JSON.parse(await readFile((await download.path())!, 'utf8'));
+  expect(data.temperature).toBe(1);
+  expect(data.density).toBe(0.6);
+  expect(data.diffusion).toBeCloseTo(Number(diffusion),4);
+  expect(data.calibration.length).toBeGreaterThan(100);
+  expect(data.comparison[0]).toEqual({t:0,gas:0,sde:0});
+  expect(data.comparison.at(-1).t).toBeGreaterThan(2);
+  expect(data.gasDisplacements).toHaveLength(64);
+  expect(data.sdeDisplacements).toHaveLength(64);
+  await page.screenshot({path:'test-results/brownian-desktop.png',fullPage:true});
+  await page.getByLabel('数密度 ρ').fill('0.4');
+  await expect(page.locator('#diffusion-value')).toHaveText('未推定');
+  await expect(page.locator('#phase')).toHaveText('準備運転');
+  await expect(page.getByRole('button',{name:'データを保存'})).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
+test('mobile layout is readable and reduced motion stays paused', async ({page})=>{
+  await page.setViewportSize({width:375,height:812});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.goto('/brownian.html');
+  await page.waitForTimeout(200);
+  await expect(page.locator('#run-time')).toHaveText('0.0');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await expect(page.getByText('dX = √(2D) dW',{exact:true})).toBeVisible();
+  await page.screenshot({path:'test-results/brownian-mobile.png',fullPage:true});
+});

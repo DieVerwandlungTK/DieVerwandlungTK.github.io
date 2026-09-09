@@ -4,6 +4,14 @@
 別ページの [Playground](playground.html) は **vgpu 0.4.0 / WebGPU** で、剛体TIP4P-Ew水分子動力学をブラウザ上でリアルタイムに計算・描画します。
 録画済みの軌跡を再生しているのではありません。酸素と水素を描き、温度・密度・分子数・計算速度を
 訪問者が操作でき、水素結合の生成と切断が見えます。
+[ブラウン運動と SDE](brownian.html) では、2次元の理想気体と追跡粒子の弾性衝突を、
+推定した拡散係数を使う過減衰 SDE と比較できます。Canvas 2D で動作し、WebGPU は不要です。
+温度・数密度は無次元量で、64個の独立した系を計算します。準備運転20、係数推定80、比較60の
+順に進み、MSD・変位分布を表示します。推定区間の後半の傾きから D を求め、比較中は固定します。
+条件変更で推定をやり直し、初めからボタンで同じ乱数種の結果を再現できます。
+条件、推定区間と比較区間の数値、最終変位は JSON として保存できます。
+有限時間・有限サイズ・刻み幅の近似を含む教材用モデルで、水の物性値には対応しません。
+
 個人情報・業績・リンクは placeholder です。
 
 ## ローカルで表示
@@ -47,6 +55,9 @@ WebGPUが使える環境が必要です（Chromiumの通常ヘッドレスモー
 - `src/style.css`: ホームページと共通の色、レイアウト、文字サイズ。
 - `playground.html` / `src/playground.css`: 実験ページの説明、操作パネル、レイアウト。
 - `src/playground.ts`: 実験ページの起動・操作。計算と描画は独立したモジュールに保ち、将来の配置変更にも再利用できます。
+- `brownian.html` / `src/brownian.css` / `src/brownian.ts`: ブラウン運動比較の画面・操作・保存。
+- `src/brownian-model.ts` / `src/brownian-experiment.ts`: 衝突・SDE・推定と比較の進行。
+- `src/brownian-charts.ts`: 代表軌跡、MSD、変位分布の描画。
 - `src/speed-distribution.ts` / `src/distribution-chart.ts`: 並進速度の集計・理論分布・SVGグラフ。
 - `src/background.ts` / `src/scene.ts`: 分子の配置・投影・結合判定。
 - `src/simulation.ts` / `src/simulation.wgsl`: ブラウザ上で動くTIP4P-Ew剛体水の力場と積分。

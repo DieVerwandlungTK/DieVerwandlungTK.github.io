@@ -15,3 +15,6 @@
   .simulation-workspace .molecular-stage { height: 300px; }
   .simulation-workspace .simulation-panel { padding: 14px; }
 }
+.experiment-nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.experiment-nav a { padding: 10px 16px; border: 1px solid #dce5e9; border-radius: 24px; font-size: 13px; }
+.experiment-nav a[aria-current="page"] { background: #e5eff0; color: #246773; border-color: #b8d4d7; }

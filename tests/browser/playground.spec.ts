@@ -164,6 +164,10 @@ test('production assets and the simulation work under a GitHub Pages project pat
     await ready(page);
     await expect(page.getByRole('button', { name: '計算を一時停止' })).toBeEnabled();
     expect(await page.locator('#static-molecules').evaluate((img: HTMLImageElement) => img.naturalWidth > 0)).toBe(true);
+    await page.getByRole('link', { name: 'ブラウン運動と SDE' }).click();
+    await expect(page).toHaveURL(/research-homepage\/brownian.html$/);
+    await expect(page.getByRole('heading', { name: 'Brownian motion & SDE' })).toBeVisible();
+    await expect(page.locator('#run-time')).not.toHaveText('0.0');
   } finally {
     await page.goto('about:blank');
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
